@@ -13,6 +13,7 @@ import {
 import { STORE_NAMES, seedIfEmpty } from '../persistence/db';
 import type { ID } from '../types';
 import { ConfirmDialog, Icon } from '../components/common';
+import CloudSyncSection from '../components/CloudSync';
 
 function ManageRecords({
   title,
@@ -329,6 +330,8 @@ export default function SettingsScreen() {
           </div>
         </div>
       </section>
+
+      <CloudSyncSection />
 
       <section className="card section-block" aria-label="Danger zone">
         <h2>Danger zone</h2>
