@@ -15,7 +15,12 @@ import type {
 } from '../types';
 
 export const DB_NAME = 'workout-player';
-export const DB_VERSION = 1;
+// v2: indexes are now created on the upgrade transaction itself.
+// v1 databases may exist with stores but no indexes (older Chrome tolerated
+// spawning new versionchange transactions during upgrade; current Chrome
+// throws "A version change transaction is running"), so migration 1→2
+// re-runs index creation — it is guarded by indexNames.contains checks.
+export const DB_VERSION = 2;
 
 export const STORE_NAMES = [
   'categories',
@@ -44,30 +49,46 @@ const KEY_PATHS: Partial<Record<StoreName, string>> = {
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
-function createStores(db: IDBDatabase): void {
+function createObjectStores(db: IDBDatabase): void {
   for (const name of STORE_NAMES) {
     if (db.objectStoreNames.contains(name)) continue;
     db.createObjectStore(name, { keyPath: KEY_PATHS[name] ?? 'id' });
   }
+}
+
+/**
+ * Create indexes on the running upgrade transaction. Never call
+ * db.transaction() from inside onupgradeneeded — the implicit version
+ * change transaction is already running, and current Chrome throws
+ * "A version change transaction is running" (older Chrome silently
+ * tolerated it, which is why this bug only surfaced on newer browsers).
+ * All index creation is guarded so re-running is a no-op.
+ */
+function ensureIndexes(tx: IDBTransaction): void {
   // Suggested indexes — Document 2 §6.
-  const exercises = db.transaction('exercises', 'versionchange').objectStore('exercises');
+  const exercises = tx.objectStore('exercises');
   if (!exercises.indexNames.contains('categoryId')) exercises.createIndex('categoryId', 'categoryId');
   if (!exercises.indexNames.contains('sortOrder')) exercises.createIndex('sortOrder', 'sortOrder');
-  const dps = db.transaction('dayPlanSections', 'versionchange').objectStore('dayPlanSections');
+  const dps = tx.objectStore('dayPlanSections');
   if (!dps.indexNames.contains('dayPlanId')) dps.createIndex('dayPlanId', 'dayPlanId');
-  const dpe = db.transaction('dayPlanExercises', 'versionchange').objectStore('dayPlanExercises');
+  const dpe = tx.objectStore('dayPlanExercises');
   if (!dpe.indexNames.contains('dayPlanSectionId')) dpe.createIndex('dayPlanSectionId', 'dayPlanSectionId');
   if (!dpe.indexNames.contains('exerciseId')) dpe.createIndex('exerciseId', 'exerciseId');
-  const cwe = db.transaction('customWorkoutExercises', 'versionchange').objectStore('customWorkoutExercises');
+  const cwe = tx.objectStore('customWorkoutExercises');
   if (!cwe.indexNames.contains('customWorkoutId')) cwe.createIndex('customWorkoutId', 'customWorkoutId');
   if (!cwe.indexNames.contains('exerciseId')) cwe.createIndex('exerciseId', 'exerciseId');
 }
 
-function upgrade(db: IDBDatabase, oldVersion: number): void {
-  // Migration 1 → initial schema. Future migrations are explicit and
-  // versioned; unknown future versions are rejected by IndexedDB itself.
+function upgrade(db: IDBDatabase, oldVersion: number, tx: IDBTransaction | null): void {
+  // Migration 0→1: initial schema. 1→2: create missing indexes in-place
+  // for databases half-created by the old buggy upgrade path. All steps
+  // are idempotent; unknown future versions are rejected by IndexedDB.
   if (oldVersion < 1) {
-    createStores(db);
+    createObjectStores(db);
+  }
+  if (oldVersion < 2) {
+    if (!tx) throw new Error('Upgrade transaction unavailable');
+    ensureIndexes(tx);
   }
 }
 
@@ -77,14 +98,21 @@ export function getDb(): Promise<IDBDatabase> {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = (event) => {
         try {
-          upgrade(request.result, (event as IDBVersionChangeEvent).oldVersion);
+          upgrade(request.result, (event as IDBVersionChangeEvent).oldVersion, request.transaction);
         } catch (error) {
+          dbPromise = null;
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       };
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error ?? new Error('Failed to open database'));
-      request.onblocked = () => reject(new Error('Database upgrade blocked by another tab'));
+      request.onerror = () => {
+        dbPromise = null;
+        reject(request.error ?? new Error('Failed to open database'));
+      };
+      request.onblocked = () => {
+        dbPromise = null;
+        reject(new Error('Database upgrade blocked by another tab'));
+      };
     });
   }
   return dbPromise;
