@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useApp } from '../store';
 import type { AppSettings } from '../store';
+import { REST_SECONDS_MAX, REST_SECONDS_MIN, sanitizeRestSeconds } from '../store';
 import { downloadBackup, exportBackup, restoreBackup, validateBackup } from '../backup';
 import {
   bodyPartRepo,
@@ -211,6 +212,24 @@ export default function SettingsScreen() {
             aria-label="Toggle auto-advance"
             onClick={() => update({ autoNext: !settings.autoNext })}
           />
+        </div>
+        <div className="settings-row">
+          <div>
+            <h3>Rest timer</h3>
+            <span className="note">Length of the rest countdown started from the player screen.</span>
+          </div>
+          <div className="inline-form">
+            <input
+              type="number"
+              min={REST_SECONDS_MIN}
+              max={REST_SECONDS_MAX}
+              step={5}
+              value={settings.restSeconds}
+              aria-label="Rest timer length in seconds"
+              onChange={(e) => update({ restSeconds: sanitizeRestSeconds(Number(e.target.value)) })}
+            />
+            <span className="note">sec</span>
+          </div>
         </div>
         <div className="settings-row">
           <div>

@@ -37,14 +37,31 @@ import type {
 export interface AppSettings {
   /** Auto-play next queue item on natural end (Document 1 §15). */
   autoNext: boolean;
+  /** Rest countdown length in seconds, started from the player screen. */
+  restSeconds: number;
   theme: 'dark' | 'light';
   /** Settings schema version — bump when a default's meaning changes. */
   version: number;
 }
 
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 
-export const DEFAULT_SETTINGS: AppSettings = { autoNext: false, theme: 'dark', version: SETTINGS_VERSION };
+export const DEFAULT_SETTINGS: AppSettings = {
+  autoNext: false,
+  restSeconds: 60,
+  theme: 'dark',
+  version: SETTINGS_VERSION,
+};
+
+export const REST_SECONDS_MIN = 5;
+export const REST_SECONDS_MAX = 600;
+
+/** Clamp a user-supplied rest length into the supported range. */
+export function sanitizeRestSeconds(value: unknown): number {
+  const n = typeof value === 'number' ? Math.round(value) : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_SETTINGS.restSeconds;
+  return Math.min(REST_SECONDS_MAX, Math.max(REST_SECONDS_MIN, n));
+}
 
 const SETTINGS_KEY = 'workout-player-settings';
 
@@ -53,13 +70,21 @@ function loadSettings(): AppSettings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    // v1 settings predate "replay by default": adopt the new autoNext
-    // default once, while preserving the user's theme choice.
+    // v1 settings predate "replay by default"; v2 predates the rest timer.
+    // Adopt the new defaults once, preserving the user's existing choices.
     if (typeof parsed.version !== 'number' || parsed.version < SETTINGS_VERSION) {
-      return { ...DEFAULT_SETTINGS, theme: parsed.theme === 'light' ? 'light' : 'dark' };
+      return {
+        ...DEFAULT_SETTINGS,
+        autoNext:
+        typeof parsed.version === 'number' && parsed.version >= 2 && typeof parsed.autoNext === 'boolean'
+          ? parsed.autoNext
+          : DEFAULT_SETTINGS.autoNext,
+        theme: parsed.theme === 'light' ? 'light' : 'dark',
+      };
     }
     return {
       autoNext: typeof parsed.autoNext === 'boolean' ? parsed.autoNext : DEFAULT_SETTINGS.autoNext,
+      restSeconds: sanitizeRestSeconds(parsed.restSeconds),
       theme: parsed.theme === 'light' ? 'light' : 'dark',
       version: SETTINGS_VERSION,
     };
