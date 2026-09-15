@@ -65,8 +65,14 @@ export interface DayPlan extends Timestamps {
 export interface DayPlanSection extends Timestamps {
   id: ID;
   dayPlanId: ID;
-  /** References a configurable WorkoutSection record. */
-  workoutSectionId: ID;
+  /**
+   * Exactly one of the two references is set. `workoutSectionId` points at a
+   * configurable named section whose exercises are added per-day;
+   * `customWorkoutId` embeds a saved CustomWorkout (playlist) by reference,
+   * expanded in the workout's own exercise order at queue time.
+   */
+  workoutSectionId: ID | null;
+  customWorkoutId?: ID | null;
   sortOrder: number;
 }
 

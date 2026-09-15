@@ -4,6 +4,8 @@
  * search/filter semantics (Document 2 §20).
  */
 import type {
+  CustomWorkout,
+  CustomWorkoutExercise,
   DayPlan,
   DayPlanExercise,
   DayPlanSection,
@@ -72,24 +74,60 @@ export interface PlanQueueInput {
   sectionExercises: DayPlanExercise[];
   workoutSections: WorkoutSection[];
   exercises: Exercise[];
+  /** Required only when a day section references a saved workout (playlist). */
+  customWorkouts?: CustomWorkout[];
+  customWorkoutExercises?: CustomWorkoutExercise[];
 }
 
 /**
  * Generate the deterministic playback queue for a DayPlan:
  * section order first, then exercise order within each section
- * (Document 2 §12.1). Missing references are surfaced, never substituted.
+ * (Document 2 §12.1). A day section that references a CustomWorkout
+ * expands to the workout's exercises in the workout's own order.
+ * Missing references are surfaced, never substituted.
  */
 export function generatePlanQueue(input: PlanQueueInput): QueueItem[] {
   if (input.dayPlan.isRestDay) return [];
   const exercisesById = new Map(input.exercises.map((e) => [e.id, e]));
   const wsById = new Map(input.workoutSections.map((w) => [w.id, w]));
+  const cwById = new Map((input.customWorkouts ?? []).map((w) => [w.id, w]));
+  const cwItemsByWorkout = new Map<ID, CustomWorkoutExercise[]>();
+  for (const item of input.customWorkoutExercises ?? []) {
+    const list = cwItemsByWorkout.get(item.customWorkoutId) ?? [];
+    list.push(item);
+    cwItemsByWorkout.set(item.customWorkoutId, list);
+  }
   const daySections = sortByOrder(input.sections.filter((s) => s.dayPlanId === input.dayPlan.id));
 
   const queue: QueueItem[] = [];
   const missing: string[] = [];
   daySections.forEach((section, sectionIdx) => {
-    const ws = wsById.get(section.workoutSectionId);
-    if (!ws) missing.push(`workout section ${section.workoutSectionId}`);
+    const customWorkoutId = section.customWorkoutId ?? null;
+    if (customWorkoutId != null) {
+      const workout = cwById.get(customWorkoutId);
+      if (!workout) {
+        missing.push(`workout ${customWorkoutId}`);
+        return;
+      }
+      const items = sortByOrder(cwItemsByWorkout.get(customWorkoutId) ?? []);
+      items.forEach((item, itemIdx) => {
+        if (!exercisesById.has(item.exerciseId)) missing.push(`exercise ${item.exerciseId}`);
+        queue.push({
+          exerciseId: item.exerciseId,
+          sectionId: section.id,
+          sectionName: workout.name,
+          sectionIndex: sectionIdx + 1,
+          sectionPosition: itemIdx + 1,
+          sectionSize: items.length,
+          overallPosition: queue.length + 1,
+          overallSize: 0,
+        });
+      });
+      return;
+    }
+    const wsId = section.workoutSectionId ?? null;
+    const ws = wsId != null ? wsById.get(wsId) : undefined;
+    if (!ws) missing.push(`workout section ${String(wsId)}`);
     const items = sortByOrder(input.sectionExercises.filter((x) => x.dayPlanSectionId === section.id));
     items.forEach((item, itemIdx) => {
       if (!exercisesById.has(item.exerciseId)) missing.push(`exercise ${item.exerciseId}`);

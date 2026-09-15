@@ -38,11 +38,13 @@ export default function HomeScreen() {
         sectionExercises: app.dayPlanExercises,
         workoutSections: app.workoutSections,
         exercises: app.exercises,
+        customWorkouts: app.customWorkouts,
+        customWorkoutExercises: app.customWorkoutExercises,
       });
     } catch {
       return [];
     }
-  }, [todayPlan, app.dayPlanSections, app.dayPlanExercises, app.workoutSections, app.exercises]);
+  }, [todayPlan, app.dayPlanSections, app.dayPlanExercises, app.workoutSections, app.exercises, app.customWorkouts, app.customWorkoutExercises]);
 
   const durationMap = useMemo(
     () => new Map(app.playbackStates.map((p) => [p.exerciseId, p.durationSeconds])),

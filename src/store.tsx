@@ -76,9 +76,9 @@ function loadSettings(): AppSettings {
       return {
         ...DEFAULT_SETTINGS,
         autoNext:
-        typeof parsed.version === 'number' && parsed.version >= 2 && typeof parsed.autoNext === 'boolean'
-          ? parsed.autoNext
-          : DEFAULT_SETTINGS.autoNext,
+          (parsed.version ?? 0) >= 2 && typeof parsed.autoNext === 'boolean'
+            ? parsed.autoNext
+            : DEFAULT_SETTINGS.autoNext,
         theme: parsed.theme === 'light' ? 'light' : 'dark',
       };
     }
