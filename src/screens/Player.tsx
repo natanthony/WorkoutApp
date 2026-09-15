@@ -113,6 +113,12 @@ export default function PlayerScreen() {
       void app.refresh();
       if (app.settings.autoNext && session.cursor < session.queue.length - 1) {
         setCursor(session.cursor + 1);
+      } else if (!app.settings.autoNext) {
+        // Replay by default: loop the current exercise until the user
+        // manually moves to the next one.
+        video.currentTime = 0;
+        setPosition(0);
+        void video.play().catch(() => setStatus('error'));
       } else {
         setStatus('ended');
       }
@@ -295,6 +301,16 @@ export default function PlayerScreen() {
                 </button>
               </div>
               <div className="controls-row">
+                <button
+                  type="button"
+                  className="toggle"
+                  aria-pressed={app.settings.autoNext}
+                  aria-label="Auto-play the next exercise when this one finishes"
+                  onClick={() => void app.setSettings({ ...app.settings, autoNext: !app.settings.autoNext })}
+                >
+                  <span className="toggle-knob" />
+                  <span>Auto Next</span>
+                </button>
                 <span className="note">{statusText(status)}</span>
                 <div className="header-actions" style={{ marginLeft: 'auto' }}>
                   <button type="button" className="button button-secondary" onClick={completeAndNext}>

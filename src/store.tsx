@@ -38,9 +38,13 @@ export interface AppSettings {
   /** Auto-play next queue item on natural end (Document 1 §15). */
   autoNext: boolean;
   theme: 'dark' | 'light';
+  /** Settings schema version — bump when a default's meaning changes. */
+  version: number;
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { autoNext: true, theme: 'dark' };
+export const SETTINGS_VERSION = 2;
+
+export const DEFAULT_SETTINGS: AppSettings = { autoNext: false, theme: 'dark', version: SETTINGS_VERSION };
 
 const SETTINGS_KEY = 'workout-player-settings';
 
@@ -49,9 +53,15 @@ function loadSettings(): AppSettings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    // v1 settings predate "replay by default": adopt the new autoNext
+    // default once, while preserving the user's theme choice.
+    if (typeof parsed.version !== 'number' || parsed.version < SETTINGS_VERSION) {
+      return { ...DEFAULT_SETTINGS, theme: parsed.theme === 'light' ? 'light' : 'dark' };
+    }
     return {
       autoNext: typeof parsed.autoNext === 'boolean' ? parsed.autoNext : DEFAULT_SETTINGS.autoNext,
       theme: parsed.theme === 'light' ? 'light' : 'dark',
+      version: SETTINGS_VERSION,
     };
   } catch {
     return DEFAULT_SETTINGS;
