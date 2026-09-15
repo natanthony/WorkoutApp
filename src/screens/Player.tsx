@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp, useExerciseById, usePlaybackByExercise } from '../store';
+import { sanitizeRestSeconds } from '../store';
 import { useSession } from '../session';
 import { useMediaUrl } from '../media';
+import { playBeep } from '../audio';
 import { completionRepo, playbackRepo } from '../persistence/repositories';
 import { exerciseCompletionKey, formatClock } from '../domain';
 import { ConfirmDialog, EmptyState, Icon } from '../components/common';
@@ -45,6 +47,7 @@ export default function PlayerScreen() {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [restRemaining, setRestRemaining] = useState<number | null>(null);
 
   // Load media and resume the saved position whenever the queue item changes.
   useEffect(() => {
@@ -88,6 +91,23 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;
   }, [muted]);
+
+  // Rest countdown: tick once per second; beep and stop at zero.
+  useEffect(() => {
+    if (restRemaining === null) return;
+    if (restRemaining <= 0) {
+      playBeep(660, 300);
+      setRestRemaining(null);
+      return;
+    }
+    const id = window.setTimeout(() => setRestRemaining((r) => (r === null ? null : r - 1)), 1000);
+    return () => window.clearTimeout(id);
+  }, [restRemaining]);
+
+  // Stop the rest timer when the exercise or session changes.
+  useEffect(() => {
+    setRestRemaining(null);
+  }, [exercise?.id, session?.id]);
 
   // Wire playback events: progress saves, completion, auto-next.
   useEffect(() => {
@@ -177,6 +197,11 @@ export default function PlayerScreen() {
     } else {
       video.pause();
     }
+  };
+
+  const startRest = () => {
+    playBeep(880, 150); // beep when the rest starts
+    setRestRemaining(sanitizeRestSeconds(app.settings.restSeconds));
   };
 
   const seek = (value: number) => {
@@ -310,6 +335,16 @@ export default function PlayerScreen() {
                 >
                   <span className="toggle-knob" />
                   <span>Auto Next</span>
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={restRemaining === null ? startRest : () => setRestRemaining(null)}
+                >
+                  <Icon name="clock" size={15} />
+                  {restRemaining === null
+                    ? `Start rest (${formatClock(sanitizeRestSeconds(app.settings.restSeconds))})`
+                    : `Rest ${formatClock(restRemaining)} — cancel`}
                 </button>
                 <span className="note">{statusText(status)}</span>
                 <div className="header-actions" style={{ marginLeft: 'auto' }}>
