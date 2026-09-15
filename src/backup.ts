@@ -166,8 +166,16 @@ export function validateBackup(raw: unknown): BackupValidation {
   }
   for (const s of data.dayPlanSections) {
     if (!dayPlanIds.has(s.dayPlanId)) errors.push(`dayPlanSection ${s.id}: unknown day plan`);
-    if (!workoutSectionIds.has(s.workoutSectionId)) {
+    const wsId = s.workoutSectionId ?? null;
+    const cwId = s.customWorkoutId ?? null;
+    if ((wsId == null) === (cwId == null)) {
+      errors.push(`dayPlanSection ${s.id}: must reference exactly one of a section or a workout`);
+    }
+    if (wsId != null && !workoutSectionIds.has(wsId)) {
       errors.push(`dayPlanSection ${s.id}: unknown workout section`);
+    }
+    if (cwId != null && !customWorkoutIds.has(cwId)) {
+      errors.push(`dayPlanSection ${s.id}: unknown workout ${cwId}`);
     }
   }
   for (const x of data.dayPlanExercises) {

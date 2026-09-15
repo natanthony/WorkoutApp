@@ -129,6 +129,7 @@ export default function SettingsScreen() {
   const sectionUsage = useMemo(() => {
     const map = new Map<ID, number>();
     for (const s of app.dayPlanSections) {
+      if (s.workoutSectionId == null) continue; // workout-embedded sections aren't named sections
       map.set(s.workoutSectionId, (map.get(s.workoutSectionId) ?? 0) + 1);
     }
     return map;

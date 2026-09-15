@@ -43,7 +43,7 @@ function makeExercise(id: string, sortOrder: number, patch: Partial<Exercise> = 
   };
 }
 
-function makeSection(id: string, dayPlanId: string, workoutSectionId: string, sortOrder: number): DayPlanSection {
+function makeSection(id: string, dayPlanId: string, workoutSectionId: string | null, sortOrder: number): DayPlanSection {
   return { id, dayPlanId, workoutSectionId, sortOrder, createdAt: now, updatedAt: now };
 }
 
@@ -140,6 +140,41 @@ describe('queue generation', () => {
         dayPlan: workoutDay,
         ...base,
         sectionExercises: [...sectionExercises, makeDayPlanExercise('x-4', 's-2', 'missing', 20)],
+      }),
+    ).toThrow(/broken references/);
+  });
+
+  it('expands a day section that references a custom workout, in workout order', () => {
+    const cw = { id: 'cw-1', name: 'Chest day', createdAt: now, updatedAt: now };
+    const cwItems = [
+      { id: 'c-2', customWorkoutId: 'cw-1', exerciseId: 'e-3', sortOrder: 20, createdAt: now, updatedAt: now },
+      { id: 'c-1', customWorkoutId: 'cw-1', exerciseId: 'e-1', sortOrder: 10, createdAt: now, updatedAt: now },
+    ];
+    const queue = generatePlanQueue({
+      dayPlan: workoutDay,
+      sections: [{ ...makeSection('s-9', 'day-0', null, 10), customWorkoutId: 'cw-1' }],
+      sectionExercises: [],
+      workoutSections: [warmUp],
+      exercises,
+      customWorkouts: [cw],
+      customWorkoutExercises: cwItems,
+    });
+    expect(queue.map((q) => q.exerciseId)).toEqual(['e-1', 'e-3']);
+    expect(queue.map((q) => q.sectionName)).toEqual(['Chest day', 'Chest day']);
+    expect(queue[0].sectionSize).toBe(2);
+    expect(queue.every((q) => q.overallSize === 2)).toBe(true);
+  });
+
+  it('throws on a day section referencing a missing workout', () => {
+    expect(() =>
+      generatePlanQueue({
+        dayPlan: workoutDay,
+        sections: [{ ...makeSection('s-9', 'day-0', null, 10), customWorkoutId: 'gone' }],
+        sectionExercises: [],
+        workoutSections: [warmUp],
+        exercises,
+        customWorkouts: [],
+        customWorkoutExercises: [],
       }),
     ).toThrow(/broken references/);
   });
