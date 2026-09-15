@@ -1022,3 +1022,37 @@ button.list-item:hover {
   min-height: 60svh;
   color: var(--text);
 }
+/* ------------------------- Bulk import modal ------------------------- */
+
+.bulk-name-input {
+  width: 100%;
+  font-size: inherit;
+  padding: 2px 6px;
+}
+
+.bulk-status {
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.bulk-status-done {
+  color: var(--accent, #7ee787);
+  opacity: 1;
+}
+
+.bulk-status-error,
+.bulk-warning {
+  color: #e5484d;
+}
+
+.bulk-warning {
+  display: block;
+  font-size: 12px;
+}
+
+.bulk-summary {
+  font-size: 13px;
+  opacity: 0.75;
+  margin: 10px 0 0;
+}
