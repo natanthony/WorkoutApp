@@ -11,7 +11,6 @@ import type {
   DayPlan,
   Exercise,
   MediaRecord,
-  WorkoutSection,
 } from '../types';
 
 export const DB_NAME = 'workout-player';
@@ -20,7 +19,8 @@ export const DB_NAME = 'workout-player';
 // spawning new versionchange transactions during upgrade; current Chrome
 // throws "A version change transaction is running"), so migration 1→2
 // re-runs index creation — it is guarded by indexNames.contains checks.
-export const DB_VERSION = 2;
+// v3: adds the dayPlanSectionWorkouts join store (sections contain workouts).
+export const DB_VERSION = 3;
 
 export const STORE_NAMES = [
   'categories',
@@ -30,6 +30,7 @@ export const STORE_NAMES = [
   'dayPlans',
   'dayPlanSections',
   'dayPlanExercises',
+  'dayPlanSectionWorkouts',
   'customWorkouts',
   'customWorkoutExercises',
   'playback',
@@ -209,18 +210,6 @@ export async function getByIndex<T>(
 
 const SEED_CATEGORIES = ['Mobility', 'Core', 'HIIT', 'Dumbbell', 'Calisthenics'];
 const SEED_BODY_PARTS = ['Arms', 'Shoulders', 'Chest', 'Back', 'Legs', 'Core', 'Glutes'];
-const SEED_SECTIONS = [
-  'Stretching',
-  'Mobility',
-  'Calisthenics',
-  'Kettlebell',
-  'Dumbbell',
-  'Warm Up',
-  'Warmdown',
-  'Cardio',
-  'Core',
-  'HIIT',
-];
 
 export async function seedIfEmpty(): Promise<void> {
   const existing = await getAll<Category>('categories');
@@ -235,13 +224,6 @@ export async function seedIfEmpty(): Promise<void> {
   }));
   const bodyParts: BodyPart[] = SEED_BODY_PARTS.map((name, i) => ({
     id: `seed-bodypart-${i + 1}`,
-    name,
-    sortOrder: (i + 1) * 10,
-    createdAt: now,
-    updatedAt: now,
-  }));
-  const workoutSections: WorkoutSection[] = SEED_SECTIONS.map((name, i) => ({
-    id: `seed-section-${i + 1}`,
     name,
     sortOrder: (i + 1) * 10,
     createdAt: now,
@@ -266,8 +248,6 @@ export async function seedIfEmpty(): Promise<void> {
       for (const c of categories) await req(cats.put(c));
       const bps = tx.objectStore('bodyParts');
       for (const b of bodyParts) await req(bps.put(b));
-      const wss = tx.objectStore('workoutSections');
-      for (const s of workoutSections) await req(wss.put(s));
       const dps = tx.objectStore('dayPlans');
       for (const d of dayPlans) await req(dps.put(d));
     },

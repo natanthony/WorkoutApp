@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, useCategoryNames, useExerciseById, useFavouriteIds } from '../store';
+import { useApp } from '../store';
 import { useSession } from '../session';
 import {
   WEEKDAY_NAMES,
@@ -10,187 +10,158 @@ import {
   sortByOrder,
   todayWeekday,
 } from '../domain';
-import type { DayPlan, DayPlanSection, ID, QueueItem, Weekday } from '../types';
+import type { DayPlanSection, ID, QueueItem, Weekday } from '../types';
 import { ConfirmDialog, EmptyState, Icon, ReorderList } from '../components/common';
-import { ExerciseThumb } from '../components/exercise';
-import { favouriteRepo, planRepo } from '../persistence/repositories';
+import { planRepo } from '../persistence/repositories';
 
-function SectionCard({
-  section,
-  name,
-  dayPlan,
-}: {
-  section: DayPlanSection;
-  name: string;
-  dayPlan: DayPlan;
-}) {
+function SectionCard({ section }: { section: DayPlanSection }) {
   const app = useApp();
-  const exerciseById = useExerciseById();
-  const categoryNames = useCategoryNames();
-  const favouriteIds = useFavouriteIds();
   const [pick, setPick] = useState('');
+  const [rename, setRename] = useState(section.name);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
-  const workoutId = section.customWorkoutId ?? null;
-
-  // A section that embeds a saved workout is a live reference: its rows come
-  // from the workout's own items, rendered read-only (single source of truth).
-  const workoutItems = useMemo(
+  // Workouts inside this section, in playback order.
+  const links = useMemo(
     () =>
-      workoutId == null
-        ? []
-        : sortByOrder(app.customWorkoutExercises.filter((i) => i.customWorkoutId === workoutId)),
-    [app.customWorkoutExercises, workoutId],
+      sortByOrder(
+        app.dayPlanSectionWorkouts.filter((l) => l.dayPlanSectionId === section.id),
+      ),
+    [app.dayPlanSectionWorkouts, section.id],
   );
 
-  const items = useMemo(() => {
-    if (workoutId != null) {
-      return workoutItems.map((i, idx) => ({
-        id: i.id,
-        dayPlanSectionId: section.id,
-        exerciseId: i.exerciseId,
-        sortOrder: idx + 1,
-        createdAt: i.createdAt,
-        updatedAt: i.updatedAt,
-      }));
+  const workoutById = useMemo(
+    () => new Map(app.customWorkouts.map((w) => [w.id, w])),
+    [app.customWorkouts],
+  );
+
+  const videoCountByWorkout = useMemo(() => {
+    const map = new Map<ID, number>();
+    for (const item of app.customWorkoutExercises) {
+      map.set(item.customWorkoutId, (map.get(item.customWorkoutId) ?? 0) + 1);
     }
-    return sortByOrder(
-      app.dayPlanExercises.filter((item) => item.dayPlanSectionId === section.id),
-    );
-  }, [workoutId, workoutItems, app.dayPlanExercises, section.id]);
+    return map;
+  }, [app.customWorkoutExercises]);
 
-  const inSection = new Set(items.map((i) => i.exerciseId));
-  const candidates = app.exercises.filter((e) => !inSection.has(e.id));
+  const videoCount = links.reduce(
+    (sum, l) => sum + (videoCountByWorkout.get(l.customWorkoutId) ?? 0),
+    0,
+  );
 
-  void dayPlan;
-
-  const renderExerciseRow = (item: (typeof items)[number], readOnly: boolean) => {
-    const exercise = exerciseById.get(item.exerciseId);
-    if (!exercise) {
-      return (
-        <div className="list-item" key={item.id}>
-          <div className="item-main">
-            <span className="item-title">Missing exercise</span>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="list-item" key={item.id}>
-        <ExerciseThumb exercise={exercise} />
-        <div className="item-main">
-          <span className="item-title">{exercise.name}</span>
-          <div className="item-sub">
-            <span>{categoryNames.get(exercise.categoryId) ?? ''}</span>
-          </div>
-        </div>
-        {readOnly ? null : (
-          <div className="item-actions">
-            <button
-              type="button"
-              className={`icon-button${favouriteIds.has(exercise.id) ? ' active' : ''}`}
-              aria-label={`Unfavourite ${exercise.name}`}
-              onClick={() =>
-                void favouriteRepo
-                  .set(exercise.id, !favouriteIds.has(exercise.id))
-                  .then(app.refresh)
-              }
-            >
-              <Icon name="star" size={17} />
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={`Remove ${exercise.name} from section`}
-              onClick={() =>
-                void planRepo.removeExerciseFromSection(item.id).then(app.refresh)
-              }
-            >
-              <Icon name="x" size={17} />
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  };
+  const inSection = new Set(links.map((l) => l.customWorkoutId));
+  const candidates = app.customWorkouts.filter((w) => !inSection.has(w.id));
 
   return (
     <div className="card">
       <div className="card-title">
         <h3>
-          {name}{' '}
-          {workoutId != null ? <span className="badge">Workout</span> : null}{' '}
-          <span className="badge badge-muted">{items.length}</span>
+          {section.name} <span className="badge badge-muted">{videoCount}</span>
         </h3>
         <button
           type="button"
           className="icon-button"
-          aria-label={`Remove section ${name}`}
+          aria-label={`Remove section ${section.name}`}
           onClick={() => setConfirmRemove(true)}
         >
           <Icon name="trash" size={17} />
         </button>
       </div>
 
-      {workoutId != null ? (
-        <p className="note">
-          Playlist from the Workouts page — edit it there; changes appear here automatically.
-        </p>
-      ) : null}
+      <div className="inline-form">
+        <input
+          aria-label="Section name"
+          value={rename}
+          onChange={(e) => setRename(e.target.value)}
+        />
+        <button
+          type="button"
+          className="button button-secondary"
+          disabled={!rename.trim() || rename.trim() === section.name}
+          onClick={() => void planRepo.renameSection(section.id, rename).then(app.refresh)}
+        >
+          Rename
+        </button>
+      </div>
 
-      {items.length === 0 ? (
-        <p className="note">
-          {workoutId != null ? 'This workout has no exercises yet.' : 'No exercises yet — add one below.'}
-        </p>
-      ) : workoutId != null ? (
-        <div className="list">{items.map((item) => renderExerciseRow(item, true))}</div>
+      {links.length === 0 ? (
+        <p className="note">No workouts yet — add one below.</p>
       ) : (
         <ReorderList
-          items={items}
-          getKey={(item) => item.id}
+          items={links}
+          getKey={(l) => l.id}
           onReorder={(from, to) => {
             const ids = moveId(
-              items.map((i) => i.id),
+              links.map((l) => l.id),
               from,
               to,
             );
-            void planRepo.reorderSectionExercises(section.id, ids).then(app.refresh);
+            void planRepo.reorderSectionWorkouts(section.id, ids).then(app.refresh);
           }}
-          renderItem={(item) => renderExerciseRow(item, false)}
+          renderItem={(link) => {
+            const workout = workoutById.get(link.customWorkoutId);
+            if (!workout) {
+              return (
+                <div className="list-item">
+                  <div className="item-main">
+                    <span className="item-title">Missing workout</span>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="list-item">
+                <div className="item-main">
+                  <span className="item-title">{workout.name}</span>
+                  <div className="item-sub">
+                    <span>{videoCountByWorkout.get(workout.id) ?? 0} videos</span>
+                  </div>
+                </div>
+                <div className="item-actions">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Remove ${workout.name} from section`}
+                    onClick={() =>
+                      void planRepo.removeWorkoutFromSection(link.id).then(app.refresh)
+                    }
+                  >
+                    <Icon name="x" size={17} />
+                  </button>
+                </div>
+              </div>
+            );
+          }}
         />
       )}
 
-      {workoutId == null ? (
-        <div className="inline-form">
-          <select
-            aria-label="Add exercise to section"
-            value={pick}
-            onChange={(e) => setPick(e.target.value)}
-          >
-            <option value="">Choose an exercise…</option>
-            {candidates.map((exercise) => (
-              <option key={exercise.id} value={exercise.id}>
-                {exercise.name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="button button-secondary"
-            disabled={!pick}
-            onClick={() => {
-              void planRepo.addExerciseToSection(section.id, pick).then(app.refresh);
-              setPick('');
-            }}
-          >
-            <Icon name="plus" size={15} /> Add
-          </button>
-        </div>
-      ) : null}
+      <div className="inline-form">
+        <select
+          aria-label="Add workout to section"
+          value={pick}
+          onChange={(e) => setPick(e.target.value)}
+        >
+          <option value="">Choose a workout…</option>
+          {candidates.map((workout) => (
+            <option key={workout.id} value={workout.id}>
+              {workout.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="button button-secondary"
+          disabled={!pick}
+          onClick={() => {
+            void planRepo.addWorkoutToSection(section.id, pick).then(app.refresh);
+            setPick('');
+          }}
+        >
+          <Icon name="plus" size={15} /> Add
+        </button>
+      </div>
 
       {confirmRemove ? (
         <ConfirmDialog
-          title={`Remove ${name}?`}
+          title={`Remove ${section.name}?`}
           danger
           confirmLabel="Remove section"
           onCancel={() => setConfirmRemove(false)}
@@ -199,9 +170,9 @@ function SectionCard({
             setConfirmRemove(false);
           }}
         >
-          The section and its {items.length} exercise reference
-          {items.length === 1 ? '' : 's'} will be removed from this day. The exercises themselves
-          stay in your library.
+          The section and its {links.length} workout reference
+          {links.length === 1 ? '' : 's'} will be removed from this day. The workouts themselves
+          stay on the Workouts page.
         </ConfirmDialog>
       ) : null}
     </div>
@@ -213,7 +184,7 @@ export default function PlannerScreen() {
   const navigate = useNavigate();
   const { startSession } = useSession();
   const [selected, setSelected] = useState<Weekday>(todayWeekday());
-  const [pickSection, setPickSection] = useState('');
+  const [newSection, setNewSection] = useState('');
 
   const dayPlan = app.dayPlans.find((d) => d.weekday === selected);
   const sections = useMemo(
@@ -224,17 +195,6 @@ export default function PlannerScreen() {
     [dayPlan, app.dayPlanSections],
   );
 
-  const sectionName = (s: DayPlanSection): string => {
-    if (s.customWorkoutId != null) {
-      return (
-        app.customWorkouts.find((w) => w.id === s.customWorkoutId)?.name ?? 'Unknown workout'
-      );
-    }
-    return (
-      app.workoutSections.find((w) => w.id === s.workoutSectionId)?.name ?? 'Unknown section'
-    );
-  };
-
   const generated = useMemo<{ queue: QueueItem[] | null; error: string | null }>(() => {
     if (!dayPlan || dayPlan.isRestDay) return { queue: null, error: null };
     try {
@@ -242,11 +202,10 @@ export default function PlannerScreen() {
         queue: generatePlanQueue({
           dayPlan,
           sections: app.dayPlanSections,
-          sectionExercises: app.dayPlanExercises,
-          workoutSections: app.workoutSections,
-          exercises: app.exercises,
+          sectionWorkouts: app.dayPlanSectionWorkouts,
           customWorkouts: app.customWorkouts,
           customWorkoutExercises: app.customWorkoutExercises,
+          exercises: app.exercises,
         }),
         error: null,
       };
@@ -256,7 +215,7 @@ export default function PlannerScreen() {
         error: e instanceof Error ? e.message : 'This plan has broken references',
       };
     }
-  }, [dayPlan, app.dayPlanSections, app.dayPlanExercises, app.workoutSections, app.exercises, app.customWorkouts, app.customWorkoutExercises]);
+  }, [dayPlan, app.dayPlanSections, app.dayPlanSectionWorkouts, app.customWorkouts, app.customWorkoutExercises, app.exercises]);
 
   const exerciseCounts = useMemo(() => {
     const counts = new Map<ID, number>();
@@ -271,11 +230,10 @@ export default function PlannerScreen() {
           generatePlanQueue({
             dayPlan: day,
             sections: app.dayPlanSections,
-            sectionExercises: app.dayPlanExercises,
-            workoutSections: app.workoutSections,
-            exercises: app.exercises,
+            sectionWorkouts: app.dayPlanSectionWorkouts,
             customWorkouts: app.customWorkouts,
             customWorkoutExercises: app.customWorkoutExercises,
+            exercises: app.exercises,
           }).length,
         );
       } catch {
@@ -283,7 +241,7 @@ export default function PlannerScreen() {
       }
     }
     return counts;
-  }, [app.dayPlans, app.dayPlanSections, app.dayPlanExercises, app.workoutSections, app.exercises, app.customWorkouts, app.customWorkoutExercises]);
+  }, [app.dayPlans, app.dayPlanSections, app.dayPlanSectionWorkouts, app.customWorkouts, app.customWorkoutExercises, app.exercises]);
 
   if (!dayPlan) {
     return <EmptyState icon="calendar" title="No plan found" message="Something went wrong loading the weekly plan." />;
@@ -313,7 +271,7 @@ export default function PlannerScreen() {
       <div className="screen-header">
         <div>
           <h1>Weekly plan</h1>
-          <p>Build each day from sections; playback follows this exact order.</p>
+          <p>Build each day from sections of workouts; playback follows this exact order.</p>
         </div>
         {generated.queue && generated.queue.length > 0 ? (
           <div className="header-actions">
@@ -410,59 +368,32 @@ export default function PlannerScreen() {
               );
               void planRepo.reorderSections(dayPlan.id, ids).then(app.refresh);
             }}
-            renderItem={(section) => (
-              <SectionCard section={section} name={sectionName(section)} dayPlan={dayPlan} />
-            )}
+            renderItem={(section) => <SectionCard section={section} />}
           />
 
           <div className="card">
             <div className="inline-form">
-              <select
-                aria-label="Add section"
-                value={pickSection}
-                onChange={(e) => setPickSection(e.target.value)}
-              >
-                <option value="">Choose a section or workout…</option>
-                {app.workoutSections.length > 0 ? (
-                  <optgroup label="Sections">
-                    {app.workoutSections.map((ws) => (
-                      <option key={ws.id} value={`ws:${ws.id}`}>
-                        {ws.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ) : null}
-                {app.customWorkouts.length > 0 ? (
-                  <optgroup label="Workouts">
-                    {app.customWorkouts.map((w) => (
-                      <option key={w.id} value={`wo:${w.id}`}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ) : null}
-              </select>
+              <input
+                aria-label="New section name"
+                placeholder="New section name…"
+                value={newSection}
+                onChange={(e) => setNewSection(e.target.value)}
+              />
               <button
                 type="button"
                 className="button button-secondary"
-                disabled={!pickSection}
+                disabled={!newSection.trim()}
                 onClick={() => {
-                  const sep = pickSection.indexOf(':');
-                  const kind = pickSection.slice(0, sep);
-                  const id = pickSection.slice(sep + 1);
-                  void (kind === 'wo'
-                    ? planRepo.addWorkout(dayPlan.id, id)
-                    : planRepo.addSection(dayPlan.id, id)
-                  ).then(app.refresh);
-                  setPickSection('');
+                  void planRepo.addSection(dayPlan.id, newSection).then(app.refresh);
+                  setNewSection('');
                 }}
               >
                 <Icon name="plus" size={15} /> Add section
               </button>
             </div>
-            {app.workoutSections.length === 0 && app.customWorkouts.length === 0 ? (
+            {app.customWorkouts.length === 0 ? (
               <p className="note">
-                Nothing to add yet — create sections in Settings or workouts on the Workouts page.
+                No workouts exist yet — create some on the Workouts page first.
               </p>
             ) : null}
           </div>
