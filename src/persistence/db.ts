@@ -78,6 +78,9 @@ function ensureIndexes(tx: IDBTransaction): void {
   const cwe = tx.objectStore('customWorkoutExercises');
   if (!cwe.indexNames.contains('customWorkoutId')) cwe.createIndex('customWorkoutId', 'customWorkoutId');
   if (!cwe.indexNames.contains('exerciseId')) cwe.createIndex('exerciseId', 'exerciseId');
+  const dpsw = tx.objectStore('dayPlanSectionWorkouts');
+  if (!dpsw.indexNames.contains('dayPlanSectionId')) dpsw.createIndex('dayPlanSectionId', 'dayPlanSectionId');
+  if (!dpsw.indexNames.contains('customWorkoutId')) dpsw.createIndex('customWorkoutId', 'customWorkoutId');
 }
 
 function upgrade(db: IDBDatabase, oldVersion: number, tx: IDBTransaction | null): void {
