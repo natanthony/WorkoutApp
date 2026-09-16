@@ -24,11 +24,13 @@ import type {
   DayPlan,
   DayPlanExercise,
   DayPlanSection,
+  DayPlanSectionWorkout,
   Exercise,
   Favourite,
   ID,
   MediaRecord,
   PlaybackState,
+  Timestamps,
   Weekday,
   WorkoutSection,
 } from '../types';
@@ -275,16 +277,20 @@ export const planRepo = {
     await putRecord('dayPlans', next);
     return next;
   },
-  async addSection(dayPlanId: ID, workoutSectionId: ID): Promise<DayPlanSection> {
+  /** Create a named section (e.g. "Mobility") on a day. */
+  async addSection(dayPlanId: ID, name: string): Promise<DayPlanSection> {
     const dayPlan = await getOne<DayPlan>('dayPlans', dayPlanId);
-    const ws = await getOne<WorkoutSection>('workoutSections', workoutSectionId);
     if (!dayPlan) throw new DomainError('Day plan not found');
-    if (!ws) throw new DomainError('Choose a valid section');
+    const trimmed = name.trim();
+    if (!trimmed) throw new DomainError('Section name is required');
     const siblings = await getByIndex<DayPlanSection>('dayPlanSections', 'dayPlanId', dayPlanId);
+    if (siblings.some((s) => s.name.toLowerCase() === trimmed.toLowerCase())) {
+      throw new DomainError('A section with that name already exists on this day');
+    }
     const record: DayPlanSection = {
       id: newId(),
       dayPlanId,
-      workoutSectionId,
+      name: trimmed,
       sortOrder: siblings.reduce((m, s) => Math.max(m, s.sortOrder), 0) + 10,
       createdAt: now(),
       updatedAt: now(),
@@ -292,62 +298,51 @@ export const planRepo = {
     await putRecord('dayPlanSections', record);
     return record;
   },
-  /**
-   * Add a saved CustomWorkout (playlist) to a day as a section. The workout
-   * is referenced, never copied — later edits to the workout are reflected
-   * in the plan, and playback expands it in the workout's exercise order.
-   */
-  async addWorkout(dayPlanId: ID, customWorkoutId: ID): Promise<DayPlanSection> {
-    const dayPlan = await getOne<DayPlan>('dayPlans', dayPlanId);
-    const workout = await getOne<CustomWorkout>('customWorkouts', customWorkoutId);
-    if (!dayPlan) throw new DomainError('Day plan not found');
-    if (!workout) throw new DomainError('Choose a valid workout');
-    const siblings = await getByIndex<DayPlanSection>('dayPlanSections', 'dayPlanId', dayPlanId);
-    const record: DayPlanSection = {
-      id: newId(),
-      dayPlanId,
-      workoutSectionId: null,
-      customWorkoutId,
-      sortOrder: siblings.reduce((m, s) => Math.max(m, s.sortOrder), 0) + 10,
-      createdAt: now(),
-      updatedAt: now(),
-    };
-    await putRecord('dayPlanSections', record);
-    return record;
+  async renameSection(sectionId: ID, name: string): Promise<void> {
+    const section = await getOne<DayPlanSection>('dayPlanSections', sectionId);
+    if (!section) throw new DomainError('Section not found');
+    const trimmed = name.trim();
+    if (!trimmed) throw new DomainError('Section name is required');
+    const siblings = await getByIndex<DayPlanSection>('dayPlanSections', 'dayPlanId', section.dayPlanId);
+    if (siblings.some((s) => s.id !== sectionId && s.name.toLowerCase() === trimmed.toLowerCase())) {
+      throw new DomainError('A section with that name already exists on this day');
+    }
+    await putRecord('dayPlanSections', { ...section, name: trimmed, updatedAt: now() });
   },
   async removeSection(sectionId: ID): Promise<void> {
-    // Removes the DayPlanSection and its DayPlanExercise relations only —
-    // never the underlying WorkoutSection or Exercise records (§17).
-    await withTx(['dayPlanSections', 'dayPlanExercises'], 'readwrite', async (tx) => {
-      const items = tx.objectStore('dayPlanExercises');
-      for (const item of (await req(items.index('dayPlanSectionId').getAll(sectionId))) as DayPlanExercise[]) {
-        await req(items.delete(item.id));
+    // Removes the DayPlanSection and its workout links only — never the
+    // underlying CustomWorkout records (§17).
+    await withTx(['dayPlanSections', 'dayPlanSectionWorkouts'], 'readwrite', async (tx) => {
+      const links = tx.objectStore('dayPlanSectionWorkouts');
+      for (const link of (await req(links.index('dayPlanSectionId').getAll(sectionId))) as DayPlanSectionWorkout[]) {
+        await req(links.delete(link.id));
       }
       await req(tx.objectStore('dayPlanSections').delete(sectionId));
     });
   },
-  async addExerciseToSection(sectionId: ID, exerciseId: ID): Promise<DayPlanExercise> {
+  /** Add a saved workout (playlist) into a section, by reference. */
+  async addWorkoutToSection(sectionId: ID, customWorkoutId: ID): Promise<DayPlanSectionWorkout> {
     const section = await getOne<DayPlanSection>('dayPlanSections', sectionId);
-    const exercise = await getOne<Exercise>('exercises', exerciseId);
+    const workout = await getOne<CustomWorkout>('customWorkouts', customWorkoutId);
     if (!section) throw new DomainError('Section not found');
-    if (!exercise) throw new DomainError('Choose a valid exercise');
-    const siblings = await getByIndex<DayPlanExercise>('dayPlanExercises', 'dayPlanSectionId', sectionId);
-    if (siblings.some((s) => s.exerciseId === exerciseId)) {
-      throw new DomainError('This exercise is already in the section');
+    if (!workout) throw new DomainError('Choose a valid workout');
+    const siblings = await getByIndex<DayPlanSectionWorkout>('dayPlanSectionWorkouts', 'dayPlanSectionId', sectionId);
+    if (siblings.some((l) => l.customWorkoutId === customWorkoutId)) {
+      throw new DomainError('That workout is already in this section');
     }
-    const record: DayPlanExercise = {
+    const record: DayPlanSectionWorkout = {
       id: newId(),
       dayPlanSectionId: sectionId,
-      exerciseId,
-      sortOrder: siblings.reduce((m, s) => Math.max(m, s.sortOrder), 0) + 10,
+      customWorkoutId,
+      sortOrder: siblings.reduce((m, l) => Math.max(m, l.sortOrder), 0) + 10,
       createdAt: now(),
       updatedAt: now(),
     };
-    await putRecord('dayPlanExercises', record);
+    await putRecord('dayPlanSectionWorkouts', record);
     return record;
   },
-  async removeExerciseFromSection(itemId: ID): Promise<void> {
-    await deleteRecord('dayPlanExercises', itemId);
+  async removeWorkoutFromSection(linkId: ID): Promise<void> {
+    await deleteRecord('dayPlanSectionWorkouts', linkId);
   },
   async reorderSections(dayPlanId: ID, orderedIds: ID[]): Promise<void> {
     const order = applyOrder(orderedIds);
@@ -359,21 +354,21 @@ export const planRepo = {
         .map((s) => ({ ...s, sortOrder: order.get(s.id)!, updatedAt: now() })),
     );
   },
-  async reorderSectionExercises(sectionId: ID, orderedIds: ID[]): Promise<void> {
+  async reorderSectionWorkouts(sectionId: ID, orderedIds: ID[]): Promise<void> {
     const order = applyOrder(orderedIds);
-    const siblings = await getByIndex<DayPlanExercise>('dayPlanExercises', 'dayPlanSectionId', sectionId);
+    const siblings = await getByIndex<DayPlanSectionWorkout>('dayPlanSectionWorkouts', 'dayPlanSectionId', sectionId);
     await putMany(
-      'dayPlanExercises',
+      'dayPlanSectionWorkouts',
       siblings
-        .filter((s) => order.has(s.id))
-        .map((s) => ({ ...s, sortOrder: order.get(s.id)!, updatedAt: now() })),
+        .filter((l) => order.has(l.id))
+        .map((l) => ({ ...l, sortOrder: order.get(l.id)!, updatedAt: now() })),
     );
   },
   async listSections(): Promise<DayPlanSection[]> {
     return getAll<DayPlanSection>('dayPlanSections');
   },
-  async listSectionExercises(): Promise<DayPlanExercise[]> {
-    return getAll<DayPlanExercise>('dayPlanExercises');
+  async listSectionWorkouts(): Promise<DayPlanSectionWorkout[]> {
+    return getAll<DayPlanSectionWorkout>('dayPlanSectionWorkouts');
   },
 };
 
@@ -405,23 +400,18 @@ export const customWorkoutRepo = {
   },
   /**
    * Deletes the workout and its item relations — never the Exercises.
-   * Day-plan sections that embed this workout are removed too (the plan
-   * entry is a reference to the playlist, not content of its own).
+   * Plan-section links to this workout are removed too; the sections
+   * themselves stay (they just lose that workout).
    */
   async remove(id: ID): Promise<void> {
-    await withTx(['customWorkouts', 'customWorkoutExercises', 'dayPlanSections', 'dayPlanExercises'], 'readwrite', async (tx) => {
+    await withTx(['customWorkouts', 'customWorkoutExercises', 'dayPlanSectionWorkouts'], 'readwrite', async (tx) => {
       const items = tx.objectStore('customWorkoutExercises');
       for (const item of (await req(items.index('customWorkoutId').getAll(id))) as CustomWorkoutExercise[]) {
         await req(items.delete(item.id));
       }
-      const daySections = tx.objectStore('dayPlanSections');
-      const dpe = tx.objectStore('dayPlanExercises');
-      for (const section of (await req(daySections.getAll())) as DayPlanSection[]) {
-        if (section.customWorkoutId !== id) continue;
-        for (const item of (await req(dpe.index('dayPlanSectionId').getAll(section.id))) as DayPlanExercise[]) {
-          await req(dpe.delete(item.id));
-        }
-        await req(daySections.delete(section.id));
+      const links = tx.objectStore('dayPlanSectionWorkouts');
+      for (const link of (await req(links.index('customWorkoutId').getAll(id))) as DayPlanSectionWorkout[]) {
+        await req(links.delete(link.id));
       }
       await req(tx.objectStore('customWorkouts').delete(id));
     });
@@ -557,5 +547,68 @@ export const mediaRepo = {
     return null;
   },
 };
+
+/* ------------------------- Legacy plan migration ------------------------- */
+
+/**
+ * One-time, idempotent migration to the section→workout model. Legacy day
+ * plan sections carried a workoutSectionId (Settings section) or an embedded
+ * customWorkoutId; both become a plain `name`, and embedded playlists become
+ * DayPlanSectionWorkout links. Legacy per-day exercises and the Settings
+ * section list are dropped.
+ */
+interface LegacyDayPlanSection extends Timestamps {
+  id: ID;
+  dayPlanId: ID;
+  sortOrder: number;
+  name?: string;
+  workoutSectionId?: ID | null;
+  customWorkoutId?: ID | null;
+}
+
+export async function migratePlanSchema(): Promise<void> {
+  const [sections, workoutSections, workouts, legacyItems] = await Promise.all([
+    getAll<LegacyDayPlanSection>('dayPlanSections'),
+    getAll<WorkoutSection>('workoutSections'),
+    getAll<CustomWorkout>('customWorkouts'),
+    getAll<DayPlanExercise>('dayPlanExercises'),
+  ]);
+  const wsName = new Map(workoutSections.map((w) => [w.id, w.name]));
+  const cwName = new Map(workouts.map((w) => [w.id, w.name]));
+  const legacySections = sections.filter((s) => typeof s.name !== 'string');
+  if (legacySections.length === 0 && legacyItems.length === 0 && workoutSections.length === 0) return;
+  await withTx(['dayPlanSections', 'dayPlanSectionWorkouts', 'dayPlanExercises', 'workoutSections'], 'readwrite', async (tx) => {
+    const dps = tx.objectStore('dayPlanSections');
+    const dpsw = tx.objectStore('dayPlanSectionWorkouts');
+    const dpe = tx.objectStore('dayPlanExercises');
+    const wss = tx.objectStore('workoutSections');
+    for (const s of legacySections) {
+      const base = {
+        id: s.id,
+        dayPlanId: s.dayPlanId,
+        sortOrder: s.sortOrder,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      };
+      if (s.customWorkoutId != null) {
+        await req(dps.put({ ...base, name: cwName.get(s.customWorkoutId) ?? 'Workout' }));
+        await req(
+          dpsw.put({
+            id: newId(),
+            dayPlanSectionId: s.id,
+            customWorkoutId: s.customWorkoutId,
+            sortOrder: 10,
+            createdAt: now(),
+            updatedAt: now(),
+          }),
+        );
+      } else {
+        await req(dps.put({ ...base, name: wsName.get(s.workoutSectionId ?? '') ?? 'Section' }));
+      }
+    }
+    for (const item of legacyItems) await req(dpe.delete(item.id));
+    for (const ws of workoutSections) await req(wss.delete(ws.id));
+  });
+}
 
 export { clearStore };

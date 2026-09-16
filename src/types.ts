@@ -62,17 +62,26 @@ export interface DayPlan extends Timestamps {
   bodyPartIds: ID[];
 }
 
+/**
+ * A named block inside a DayPlan (e.g. "Mobility"). Its content is an ordered
+ * list of saved workouts (playlists) via DayPlanSectionWorkout.
+ */
 export interface DayPlanSection extends Timestamps {
   id: ID;
   dayPlanId: ID;
-  /**
-   * Exactly one of the two references is set. `workoutSectionId` points at a
-   * configurable named section whose exercises are added per-day;
-   * `customWorkoutId` embeds a saved CustomWorkout (playlist) by reference,
-   * expanded in the workout's own exercise order at queue time.
-   */
-  workoutSectionId: ID | null;
-  customWorkoutId?: ID | null;
+  name: string;
+  sortOrder: number;
+}
+
+/**
+ * Join record placing a CustomWorkout inside a DayPlanSection. The workout is
+ * referenced, never copied — playback expands it in the workout's own
+ * exercise order, so sections play as: section → workout → videos.
+ */
+export interface DayPlanSectionWorkout extends Timestamps {
+  id: ID;
+  dayPlanSectionId: ID;
+  customWorkoutId: ID;
   sortOrder: number;
 }
 
@@ -158,6 +167,7 @@ export interface BackupFile {
   dayPlans: DayPlan[];
   dayPlanSections: DayPlanSection[];
   dayPlanExercises: DayPlanExercise[];
+  dayPlanSectionWorkouts: DayPlanSectionWorkout[];
   customWorkouts: CustomWorkout[];
   customWorkoutExercises: CustomWorkoutExercise[];
   favourites: Favourite[];

@@ -12,9 +12,11 @@ export async function cloudSql(query: string): Promise<Record<string, unknown>[]
   try {
     res = await fetch(NEON_SQL_URL, {
       method: 'POST',
+      // No Content-Type header on purpose: Neon's CORS preflight allows
+      // neon-connection-string but not content-type, and the proxy parses
+      // the JSON body regardless (mirrors @neondatabase/serverless).
       headers: {
         'neon-connection-string': NEON_CONN,
-        'content-type': 'application/json',
       },
       // Neon's Data API rejects bodies without a params array ("query is
       // not supported"), so always send one even when empty.

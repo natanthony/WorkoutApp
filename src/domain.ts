@@ -7,14 +7,13 @@ import type {
   CustomWorkout,
   CustomWorkoutExercise,
   DayPlan,
-  DayPlanExercise,
   DayPlanSection,
+  DayPlanSectionWorkout,
   Difficulty,
   Exercise,
   ID,
   QueueItem,
   Weekday,
-  WorkoutSection,
 } from './types';
 
 export class DomainError extends Error {
@@ -71,75 +70,59 @@ export function moveId(ids: ID[], from: number, to: number): ID[] {
 export interface PlanQueueInput {
   dayPlan: DayPlan;
   sections: DayPlanSection[];
-  sectionExercises: DayPlanExercise[];
-  workoutSections: WorkoutSection[];
+  sectionWorkouts: DayPlanSectionWorkout[];
+  customWorkouts: CustomWorkout[];
+  customWorkoutExercises: CustomWorkoutExercise[];
   exercises: Exercise[];
-  /** Required only when a day section references a saved workout (playlist). */
-  customWorkouts?: CustomWorkout[];
-  customWorkoutExercises?: CustomWorkoutExercise[];
 }
 
 /**
  * Generate the deterministic playback queue for a DayPlan:
- * section order first, then exercise order within each section
- * (Document 2 §12.1). A day section that references a CustomWorkout
- * expands to the workout's exercises in the workout's own order.
+ * section order first, then workout order within each section, then the
+ * workout's own exercise order — so playback runs Section → Workout → Vid.
  * Missing references are surfaced, never substituted.
  */
 export function generatePlanQueue(input: PlanQueueInput): QueueItem[] {
   if (input.dayPlan.isRestDay) return [];
   const exercisesById = new Map(input.exercises.map((e) => [e.id, e]));
-  const wsById = new Map(input.workoutSections.map((w) => [w.id, w]));
-  const cwById = new Map((input.customWorkouts ?? []).map((w) => [w.id, w]));
+  const cwById = new Map(input.customWorkouts.map((w) => [w.id, w]));
   const cwItemsByWorkout = new Map<ID, CustomWorkoutExercise[]>();
-  for (const item of input.customWorkoutExercises ?? []) {
+  for (const item of input.customWorkoutExercises) {
     const list = cwItemsByWorkout.get(item.customWorkoutId) ?? [];
     list.push(item);
     cwItemsByWorkout.set(item.customWorkoutId, list);
+  }
+  const linksBySection = new Map<ID, DayPlanSectionWorkout[]>();
+  for (const link of input.sectionWorkouts) {
+    const list = linksBySection.get(link.dayPlanSectionId) ?? [];
+    list.push(link);
+    linksBySection.set(link.dayPlanSectionId, list);
   }
   const daySections = sortByOrder(input.sections.filter((s) => s.dayPlanId === input.dayPlan.id));
 
   const queue: QueueItem[] = [];
   const missing: string[] = [];
   daySections.forEach((section, sectionIdx) => {
-    const customWorkoutId = section.customWorkoutId ?? null;
-    if (customWorkoutId != null) {
-      const workout = cwById.get(customWorkoutId);
+    const links = sortByOrder(linksBySection.get(section.id) ?? []);
+    links.forEach((link) => {
+      const workout = cwById.get(link.customWorkoutId);
       if (!workout) {
-        missing.push(`workout ${customWorkoutId}`);
+        missing.push(`workout ${link.customWorkoutId}`);
         return;
       }
-      const items = sortByOrder(cwItemsByWorkout.get(customWorkoutId) ?? []);
+      const items = sortByOrder(cwItemsByWorkout.get(link.customWorkoutId) ?? []);
       items.forEach((item, itemIdx) => {
         if (!exercisesById.has(item.exerciseId)) missing.push(`exercise ${item.exerciseId}`);
         queue.push({
           exerciseId: item.exerciseId,
           sectionId: section.id,
-          sectionName: workout.name,
+          sectionName: section.name,
           sectionIndex: sectionIdx + 1,
           sectionPosition: itemIdx + 1,
           sectionSize: items.length,
           overallPosition: queue.length + 1,
           overallSize: 0,
         });
-      });
-      return;
-    }
-    const wsId = section.workoutSectionId ?? null;
-    const ws = wsId != null ? wsById.get(wsId) : undefined;
-    if (!ws) missing.push(`workout section ${String(wsId)}`);
-    const items = sortByOrder(input.sectionExercises.filter((x) => x.dayPlanSectionId === section.id));
-    items.forEach((item, itemIdx) => {
-      if (!exercisesById.has(item.exerciseId)) missing.push(`exercise ${item.exerciseId}`);
-      queue.push({
-        exerciseId: item.exerciseId,
-        sectionId: section.id,
-        sectionName: ws ? ws.name : 'Unknown section',
-        sectionIndex: sectionIdx + 1,
-        sectionPosition: itemIdx + 1,
-        sectionSize: items.length,
-        overallPosition: queue.length + 1,
-        overallSize: 0,
       });
     });
   });
