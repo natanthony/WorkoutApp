@@ -18,6 +18,32 @@ import type { CloudSession } from './auth';
 const ITEM_KINDS = STORE_NAMES.filter((name) => name !== 'mediaBlobs') as StoreName[];
 const BATCH = 40;
 
+// Video payloads must travel in pieces: the proxy rejects any request or
+// response over ~64 MB, and a single video can be far larger than that.
+const BLOB_PART_CHARS = 6_000_000; // ~6 MB of base64 per network request
+const BLOB_PART_FETCH = 6; // parts per download request (~36 MB response)
+
+function splitBlobParts(base64: string): string[] {
+  const parts: string[] = [];
+  for (let i = 0; i < base64.length; i += BLOB_PART_CHARS) {
+    parts.push(base64.slice(i, i + BLOB_PART_CHARS));
+  }
+  return parts;
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+async function ensureBlobPartsTable(): Promise<void> {
+  await cloudSql(
+    'CREATE TABLE IF NOT EXISTS app_blob_parts (user_id text NOT NULL, media_id text NOT NULL, part int NOT NULL, data text NOT NULL, PRIMARY KEY (user_id, media_id, part))',
+  );
+}
+
 type LocalRecord = Record<string, unknown> & { id: string };
 
 interface RemoteItem {
@@ -128,25 +154,36 @@ function hexToBlob(hex: string, mimeType: string): Blob {
 }
 
 async function pushBlobs(session: CloudSession, force: boolean): Promise<number> {
-  const remote = (await cloudSql(
-    `SELECT media_id FROM app_blobs WHERE user_id = ${lit(session.userId)}`,
-  )) as unknown as { media_id: string }[];
-  const remoteIds = new Set(remote.map((r) => r.media_id));
-  const statements: string[] = [];
+  await ensureBlobPartsTable();
+  const [legacy, parts] = await Promise.all([
+    cloudSql(`SELECT media_id FROM app_blobs WHERE user_id = ${lit(session.userId)}`),
+    cloudSql(
+      `SELECT media_id FROM app_blob_parts WHERE user_id = ${lit(session.userId)} GROUP BY media_id`,
+    ),
+  ]);
+  const remoteIds = new Set([
+    ...((legacy as unknown as { media_id: string }[]).map((r) => r.media_id)),
+    ...((parts as unknown as { media_id: string }[]).map((r) => r.media_id)),
+  ]);
   let uploaded = 0;
   for (const record of await mediaRepo.list()) {
     if (!force && remoteIds.has(record.id)) continue;
     const blob = await mediaRepo.getBlob(record.id);
     if (!blob) continue;
-    statements.push(`(${lit(session.userId)}, ${lit(record.id)}, decode('${await blobToBase64(blob)}', 'base64'))`);
-    uploaded += 1;
-  }
-  for (let i = 0; i < statements.length; i += BATCH) {
+    const base64 = await blobToBase64(blob);
+    const pieces = splitBlobParts(base64);
     await cloudSql(
-      `INSERT INTO app_blobs (user_id, media_id, blob) VALUES ${statements
-        .slice(i, i + BATCH)
-        .join(', ')} ON CONFLICT (user_id, media_id) DO UPDATE SET blob = EXCLUDED.blob`,
+      `DELETE FROM app_blob_parts WHERE user_id = ${lit(session.userId)} AND media_id = ${lit(record.id)}`,
     );
+    await cloudSql(
+      `DELETE FROM app_blobs WHERE user_id = ${lit(session.userId)} AND media_id = ${lit(record.id)}`,
+    );
+    for (let part = 0; part < pieces.length; part += 1) {
+      await cloudSql(
+        `INSERT INTO app_blob_parts (user_id, media_id, part, data) VALUES (${lit(session.userId)}, ${lit(record.id)}, ${part}, ${lit(pieces[part])})`,
+      );
+    }
+    uploaded += 1;
   }
   return uploaded;
 }
@@ -158,16 +195,38 @@ async function pullBlobs(session: CloudSession): Promise<number> {
     if (!(await mediaRepo.getBlob(record.id))) missing.add(record.id);
   }
   if (missing.size === 0) return 0;
-  const rows = (await cloudSql(
-    `SELECT media_id, blob FROM app_blobs WHERE user_id = ${lit(session.userId)}`,
-  )) as unknown as { media_id: string; blob: string | null }[];
+  const partIds = new Set(
+    (
+      (await cloudSql(
+        `SELECT media_id FROM app_blob_parts WHERE user_id = ${lit(session.userId)} GROUP BY media_id`,
+      )) as unknown as { media_id: string }[]
+    ).map((r) => r.media_id),
+  );
   let downloaded = 0;
-  for (const row of rows) {
-    if (!missing.has(row.media_id) || !row.blob) continue;
-    const record = await mediaRepo.getRecord(row.media_id);
+  for (const mediaId of missing) {
+    const record = await mediaRepo.getRecord(mediaId);
     if (!record) continue;
-    await mediaRepo.put(record, hexToBlob(row.blob, record.mimeType));
-    downloaded += 1;
+    if (partIds.has(mediaId)) {
+      let base64 = '';
+      for (let start = 0; ; start += BLOB_PART_FETCH) {
+        const rows = (await cloudSql(
+          `SELECT data FROM app_blob_parts WHERE user_id = ${lit(session.userId)} AND media_id = ${lit(mediaId)} AND part >= ${start} AND part < ${start + BLOB_PART_FETCH} ORDER BY part`,
+        )) as unknown as { data: string }[];
+        if (rows.length === 0) break;
+        for (const row of rows) base64 += row.data;
+        if (rows.length < BLOB_PART_FETCH) break;
+      }
+      await mediaRepo.put(record, base64ToBlob(base64, record.mimeType));
+      downloaded += 1;
+      continue;
+    }
+    const rows = (await cloudSql(
+      `SELECT blob FROM app_blobs WHERE user_id = ${lit(session.userId)} AND media_id = ${lit(mediaId)}`,
+    )) as unknown as { blob: string | null }[];
+    if (rows[0]?.blob) {
+      await mediaRepo.put(record, hexToBlob(rows[0].blob, record.mimeType));
+      downloaded += 1;
+    }
   }
   return downloaded;
 }

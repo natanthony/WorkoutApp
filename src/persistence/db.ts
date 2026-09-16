@@ -20,7 +20,7 @@ export const DB_NAME = 'workout-player';
 // throws "A version change transaction is running"), so migration 1→2
 // re-runs index creation — it is guarded by indexNames.contains checks.
 // v3: adds the dayPlanSectionWorkouts join store (sections contain workouts).
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 export const STORE_NAMES = [
   'categories',
@@ -87,10 +87,10 @@ function upgrade(db: IDBDatabase, oldVersion: number, tx: IDBTransaction | null)
   // Migration 0→1: initial schema. 1→2: create missing indexes in-place
   // for databases half-created by the old buggy upgrade path. All steps
   // are idempotent; unknown future versions are rejected by IndexedDB.
-  if (oldVersion < 1) {
+  if (oldVersion < 4) {
     createObjectStores(db);
   }
-  if (oldVersion < 2) {
+  if (oldVersion < 4) {
     if (!tx) throw new Error('Upgrade transaction unavailable');
     ensureIndexes(tx);
   }
