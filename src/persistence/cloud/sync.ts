@@ -80,6 +80,7 @@ async function pushItems(session: CloudSession, force: boolean): Promise<number>
   for (const kind of ITEM_KINDS) {
     const local = (await getAll<LocalRecord>(kind)) as LocalRecord[];
     for (const item of local) {
+      if (!item || !item.id) continue; // skip corrupt records from legacy migrations
       const time = recordTime(item);
       const remoteTime = remoteTimes.get(`${kind}:${item.id}`);
       if (force || remoteTime === undefined || remoteTime < time) {
@@ -167,6 +168,7 @@ async function pushBlobs(session: CloudSession, force: boolean): Promise<number>
   ]);
   let uploaded = 0;
   for (const record of await mediaRepo.list()) {
+    if (!record.id) continue; // skip corrupt records from legacy migrations
     if (!force && remoteIds.has(record.id)) continue;
     const blob = await mediaRepo.getBlob(record.id);
     if (!blob) continue;
@@ -192,6 +194,7 @@ async function pullBlobs(session: CloudSession): Promise<number> {
   const media = await mediaRepo.list();
   const missing = new Set<string>();
   for (const record of media) {
+    if (!record.id) continue;
     if (!(await mediaRepo.getBlob(record.id))) missing.add(record.id);
   }
   if (missing.size === 0) return 0;
