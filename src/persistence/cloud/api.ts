@@ -16,7 +16,9 @@ export async function cloudSql(query: string): Promise<Record<string, unknown>[]
         'neon-connection-string': NEON_CONN,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ query }),
+      // Neon's Data API rejects bodies without a params array ("query is
+      // not supported"), so always send one even when empty.
+      body: JSON.stringify({ query, params: [] }),
     });
     body = (await res.json()) as SqlResponse;
   } catch {
