@@ -35,16 +35,15 @@ export default function HomeScreen() {
       return generatePlanQueue({
         dayPlan: todayPlan,
         sections: app.dayPlanSections,
-        sectionExercises: app.dayPlanExercises,
-        workoutSections: app.workoutSections,
-        exercises: app.exercises,
+        sectionWorkouts: app.dayPlanSectionWorkouts,
         customWorkouts: app.customWorkouts,
         customWorkoutExercises: app.customWorkoutExercises,
+        exercises: app.exercises,
       });
     } catch {
       return [];
     }
-  }, [todayPlan, app.dayPlanSections, app.dayPlanExercises, app.workoutSections, app.exercises, app.customWorkouts, app.customWorkoutExercises]);
+  }, [todayPlan, app.dayPlanSections, app.dayPlanSectionWorkouts, app.customWorkouts, app.customWorkoutExercises, app.exercises]);
 
   const durationMap = useMemo(
     () => new Map(app.playbackStates.map((p) => [p.exerciseId, p.durationSeconds])),

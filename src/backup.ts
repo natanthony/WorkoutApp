@@ -18,6 +18,7 @@ export async function exportBackup(): Promise<BackupFile> {
     dayPlans,
     dayPlanSections,
     dayPlanExercises,
+    dayPlanSectionWorkouts,
     customWorkouts,
     customWorkoutExercises,
     favourites,
@@ -31,6 +32,7 @@ export async function exportBackup(): Promise<BackupFile> {
     getAll<BackupFile['dayPlans'][number]>('dayPlans'),
     getAll<BackupFile['dayPlanSections'][number]>('dayPlanSections'),
     getAll<BackupFile['dayPlanExercises'][number]>('dayPlanExercises'),
+    getAll<BackupFile['dayPlanSectionWorkouts'][number]>('dayPlanSectionWorkouts'),
     getAll<BackupFile['customWorkouts'][number]>('customWorkouts'),
     getAll<BackupFile['customWorkoutExercises'][number]>('customWorkoutExercises'),
     getAll<BackupFile['favourites'][number]>('favourites'),
@@ -48,6 +50,7 @@ export async function exportBackup(): Promise<BackupFile> {
     dayPlans,
     dayPlanSections,
     dayPlanExercises,
+    dayPlanSectionWorkouts,
     customWorkouts,
     customWorkoutExercises,
     favourites,
@@ -109,12 +112,17 @@ export function validateBackup(raw: unknown): BackupValidation {
     'dayPlans',
     'dayPlanSections',
     'dayPlanExercises',
+    'dayPlanSectionWorkouts',
     'customWorkouts',
     'customWorkoutExercises',
     'favourites',
     'playbackState',
     'completion',
   ] as const;
+  // v1 backups predate section→workout links; default before the array check.
+  if (!Array.isArray(data.dayPlanSectionWorkouts)) {
+    (data as { dayPlanSectionWorkouts: unknown[] }).dayPlanSectionWorkouts = [];
+  }
   for (const field of arrayFields) {
     if (!Array.isArray(data[field])) errors.push(`Missing array: ${field}`);
   }
@@ -136,7 +144,7 @@ export function validateBackup(raw: unknown): BackupValidation {
 
   const categoryIds = duplicateCheck(data.categories, 'categories');
   const bodyPartIds = duplicateCheck(data.bodyParts, 'bodyParts');
-  const workoutSectionIds = duplicateCheck(data.workoutSections, 'workoutSections');
+  duplicateCheck(data.workoutSections, 'workoutSections');
   const exerciseIds = duplicateCheck(data.exercises, 'exercises');
   const dayPlanIds = duplicateCheck(data.dayPlans, 'dayPlans');
   const dayPlanSectionIds = duplicateCheck(data.dayPlanSections, 'dayPlanSections');
@@ -166,16 +174,16 @@ export function validateBackup(raw: unknown): BackupValidation {
   }
   for (const s of data.dayPlanSections) {
     if (!dayPlanIds.has(s.dayPlanId)) errors.push(`dayPlanSection ${s.id}: unknown day plan`);
-    const wsId = s.workoutSectionId ?? null;
-    const cwId = s.customWorkoutId ?? null;
-    if ((wsId == null) === (cwId == null)) {
-      errors.push(`dayPlanSection ${s.id}: must reference exactly one of a section or a workout`);
+    if (!hasString(s, 'name') || !s.name.trim()) {
+      errors.push(`dayPlanSection ${s.id}: missing name`);
     }
-    if (wsId != null && !workoutSectionIds.has(wsId)) {
-      errors.push(`dayPlanSection ${s.id}: unknown workout section`);
+  }
+  for (const l of data.dayPlanSectionWorkouts) {
+    if (!dayPlanSectionIds.has(l.dayPlanSectionId)) {
+      errors.push(`dayPlanSectionWorkout ${l.id}: unknown section`);
     }
-    if (cwId != null && !customWorkoutIds.has(cwId)) {
-      errors.push(`dayPlanSection ${s.id}: unknown workout ${cwId}`);
+    if (!customWorkoutIds.has(l.customWorkoutId)) {
+      errors.push(`dayPlanSectionWorkout ${l.id}: unknown workout`);
     }
   }
   for (const x of data.dayPlanExercises) {
@@ -229,6 +237,7 @@ export async function restoreBackup(data: BackupFile): Promise<RestoreResult> {
       'dayPlans',
       'dayPlanSections',
       'dayPlanExercises',
+      'dayPlanSectionWorkouts',
       'customWorkouts',
       'customWorkoutExercises',
       'favourites',
@@ -245,6 +254,7 @@ export async function restoreBackup(data: BackupFile): Promise<RestoreResult> {
         'dayPlans',
         'dayPlanSections',
         'dayPlanExercises',
+        'dayPlanSectionWorkouts',
         'customWorkouts',
         'customWorkoutExercises',
         'favourites',
@@ -264,6 +274,7 @@ export async function restoreBackup(data: BackupFile): Promise<RestoreResult> {
       await put('dayPlans', clean.dayPlans);
       await put('dayPlanSections', clean.dayPlanSections);
       await put('dayPlanExercises', clean.dayPlanExercises);
+      await put('dayPlanSectionWorkouts', clean.dayPlanSectionWorkouts);
       await put('customWorkouts', clean.customWorkouts);
       await put('customWorkoutExercises', clean.customWorkoutExercises);
       await put('favourites', clean.favourites);

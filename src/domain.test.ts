@@ -17,10 +17,9 @@ import {
 import { validateBackup } from './backup';
 import type {
   DayPlan,
-  DayPlanExercise,
   DayPlanSection,
+  DayPlanSectionWorkout,
   Exercise,
-  WorkoutSection,
 } from './types';
 
 const now = 1_700_000_000_000;
@@ -43,16 +42,22 @@ function makeExercise(id: string, sortOrder: number, patch: Partial<Exercise> = 
   };
 }
 
-function makeSection(id: string, dayPlanId: string, workoutSectionId: string | null, sortOrder: number): DayPlanSection {
-  return { id, dayPlanId, workoutSectionId, sortOrder, createdAt: now, updatedAt: now };
+function makeSection(id: string, dayPlanId: string, name: string, sortOrder: number): DayPlanSection {
+  return { id, dayPlanId, name, sortOrder, createdAt: now, updatedAt: now };
 }
 
-function makeDayPlanExercise(id: string, dayPlanSectionId: string, exerciseId: string, sortOrder: number): DayPlanExercise {
-  return { id, dayPlanSectionId, exerciseId, sortOrder, createdAt: now, updatedAt: now };
+function makeLink(id: string, dayPlanSectionId: string, customWorkoutId: string, sortOrder: number): DayPlanSectionWorkout {
+  return { id, dayPlanSectionId, customWorkoutId, sortOrder, createdAt: now, updatedAt: now };
 }
 
-const warmUp: WorkoutSection = { id: 'ws-1', name: 'Warm Up', sortOrder: 10, createdAt: now, updatedAt: now };
-const hiit: WorkoutSection = { id: 'ws-2', name: 'HIIT', sortOrder: 20, createdAt: now, updatedAt: now };
+const warmUpWorkout = { id: 'cw-1', name: 'Warm Up', createdAt: now, updatedAt: now };
+const coolDownWorkout = { id: 'cw-2', name: 'Cool Down', createdAt: now, updatedAt: now };
+const cwItems = [
+  { id: 'c-1', customWorkoutId: 'cw-1', exerciseId: 'e-1', sortOrder: 10, createdAt: now, updatedAt: now },
+  { id: 'c-2', customWorkoutId: 'cw-1', exerciseId: 'e-2', sortOrder: 20, createdAt: now, updatedAt: now },
+  { id: 'c-3', customWorkoutId: 'cw-2', exerciseId: 'e-3', sortOrder: 10, createdAt: now, updatedAt: now },
+  { id: 'c-4', customWorkoutId: 'cw-2', exerciseId: 'e-4', sortOrder: 20, createdAt: now, updatedAt: now },
+];
 
 const workoutDay: DayPlan = {
   id: 'day-0',
@@ -104,28 +109,29 @@ describe('ordering', () => {
 });
 
 describe('queue generation', () => {
-  const sections = [makeSection('s-2', 'day-0', 'ws-2', 20), makeSection('s-1', 'day-0', 'ws-1', 10)];
-  const exercises = [makeExercise('e-1', 10), makeExercise('e-2', 20), makeExercise('e-3', 30)];
-  const sectionExercises = [
-    makeDayPlanExercise('x-2', 's-1', 'e-2', 20),
-    makeDayPlanExercise('x-1', 's-1', 'e-1', 10),
-    makeDayPlanExercise('x-3', 's-2', 'e-3', 10),
+  const sections = [makeSection('s-2', 'day-0', 'Cool Down', 20), makeSection('s-1', 'day-0', 'Warm Up', 10)];
+  const exercises = [makeExercise('e-1', 10), makeExercise('e-2', 20), makeExercise('e-3', 30), makeExercise('e-4', 40)];
+  const sectionWorkouts = [
+    makeLink('l-2', 's-1', 'cw-2', 20),
+    makeLink('l-1', 's-1', 'cw-1', 10),
+    makeLink('l-3', 's-2', 'cw-1', 10),
   ];
   const base = {
     sections,
-    sectionExercises,
-    workoutSections: [warmUp, hiit],
+    sectionWorkouts,
+    customWorkouts: [warmUpWorkout, coolDownWorkout],
+    customWorkoutExercises: cwItems,
     exercises,
   };
 
-  it('orders by section then exercise sortOrder with running positions', () => {
+  it('orders by section, then workout, then exercise, with running positions', () => {
     const queue = generatePlanQueue({ dayPlan: workoutDay, ...base });
-    expect(queue.map((q) => q.exerciseId)).toEqual(['e-1', 'e-2', 'e-3']);
-    expect(queue.map((q) => q.sectionName)).toEqual(['Warm Up', 'Warm Up', 'HIIT']);
-    expect(queue.map((q) => q.overallPosition)).toEqual([1, 2, 3]);
-    expect(queue.every((q) => q.overallSize === 3)).toBe(true);
+    expect(queue.map((q) => q.exerciseId)).toEqual(['e-1', 'e-2', 'e-3', 'e-4', 'e-1', 'e-2']);
+    expect(queue.map((q) => q.sectionName)).toEqual(['Warm Up', 'Warm Up', 'Warm Up', 'Warm Up', 'Cool Down', 'Cool Down']);
+    expect(queue.map((q) => q.overallPosition)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(queue.every((q) => q.overallSize === 6)).toBe(true);
     expect(queue[0].sectionSize).toBe(2);
-    expect(queue[2].sectionPosition).toBe(1);
+    expect(queue[4].sectionPosition).toBe(1);
   });
 
   it('returns an empty queue for rest days', () => {
@@ -134,47 +140,25 @@ describe('queue generation', () => {
     ).toEqual([]);
   });
 
-  it('throws on broken exercise references instead of substituting', () => {
+  it('throws on a section containing a missing workout', () => {
     expect(() =>
       generatePlanQueue({
         dayPlan: workoutDay,
         ...base,
-        sectionExercises: [...sectionExercises, makeDayPlanExercise('x-4', 's-2', 'missing', 20)],
+        sectionWorkouts: [...sectionWorkouts, makeLink('l-9', 's-1', 'gone', 30)],
       }),
     ).toThrow(/broken references/);
   });
 
-  it('expands a day section that references a custom workout, in workout order', () => {
-    const cw = { id: 'cw-1', name: 'Chest day', createdAt: now, updatedAt: now };
-    const cwItems = [
-      { id: 'c-2', customWorkoutId: 'cw-1', exerciseId: 'e-3', sortOrder: 20, createdAt: now, updatedAt: now },
-      { id: 'c-1', customWorkoutId: 'cw-1', exerciseId: 'e-1', sortOrder: 10, createdAt: now, updatedAt: now },
-    ];
-    const queue = generatePlanQueue({
-      dayPlan: workoutDay,
-      sections: [{ ...makeSection('s-9', 'day-0', null, 10), customWorkoutId: 'cw-1' }],
-      sectionExercises: [],
-      workoutSections: [warmUp],
-      exercises,
-      customWorkouts: [cw],
-      customWorkoutExercises: cwItems,
-    });
-    expect(queue.map((q) => q.exerciseId)).toEqual(['e-1', 'e-3']);
-    expect(queue.map((q) => q.sectionName)).toEqual(['Chest day', 'Chest day']);
-    expect(queue[0].sectionSize).toBe(2);
-    expect(queue.every((q) => q.overallSize === 2)).toBe(true);
-  });
-
-  it('throws on a day section referencing a missing workout', () => {
+  it('throws on a workout containing a missing exercise', () => {
     expect(() =>
       generatePlanQueue({
         dayPlan: workoutDay,
-        sections: [{ ...makeSection('s-9', 'day-0', null, 10), customWorkoutId: 'gone' }],
-        sectionExercises: [],
-        workoutSections: [warmUp],
-        exercises,
-        customWorkouts: [],
-        customWorkoutExercises: [],
+        ...base,
+        customWorkoutExercises: [
+          ...cwItems,
+          { id: 'c-x', customWorkoutId: 'cw-2', exerciseId: 'missing', sortOrder: 30, createdAt: now, updatedAt: now },
+        ],
       }),
     ).toThrow(/broken references/);
   });
@@ -258,6 +242,7 @@ describe('backup validation', () => {
     dayPlans: [],
     dayPlanSections: [],
     dayPlanExercises: [],
+    dayPlanSectionWorkouts: [],
     customWorkouts: [],
     customWorkoutExercises: [],
     favourites: [],
