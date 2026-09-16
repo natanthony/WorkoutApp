@@ -9,7 +9,6 @@ import {
   categoryRepo,
   clearStore,
   mediaRepo,
-  workoutSectionRepo,
 } from '../persistence/repositories';
 import { STORE_NAMES, seedIfEmpty } from '../persistence/db';
 import type { ID } from '../types';
@@ -125,15 +124,6 @@ export default function SettingsScreen() {
     }
     return map;
   }, [app.dayPlans]);
-
-  const sectionUsage = useMemo(() => {
-    const map = new Map<ID, number>();
-    for (const s of app.dayPlanSections) {
-      if (s.workoutSectionId == null) continue; // workout-embedded sections aren't named sections
-      map.set(s.workoutSectionId, (map.get(s.workoutSectionId) ?? 0) + 1);
-    }
-    return map;
-  }, [app.dayPlanSections]);
 
   const update = (patch: Partial<AppSettings>) => setSettings({ ...settings, ...patch });
 
@@ -273,14 +263,6 @@ export default function SettingsScreen() {
           usage={bodyPartUsage}
           onAdd={(name) => bodyPartRepo.create(name).then(app.refresh)}
           onRemove={(id) => bodyPartRepo.remove(id).then(app.refresh)}
-        />
-        <ManageRecords
-          title="Sections"
-          note="Reusable blocks (Warm Up, Core, HIIT…) that make up each planned day."
-          items={app.workoutSections}
-          usage={sectionUsage}
-          onAdd={(name) => workoutSectionRepo.create(name).then(app.refresh)}
-          onRemove={(id) => workoutSectionRepo.remove(id).then(app.refresh)}
         />
       </section>
 

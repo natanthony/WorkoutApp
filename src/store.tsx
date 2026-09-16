@@ -14,6 +14,7 @@ import {
   customWorkoutRepo,
   exerciseRepo,
   favouriteRepo,
+  migratePlanSchema,
   planRepo,
   playbackRepo,
   workoutSectionRepo,
@@ -25,8 +26,8 @@ import type {
   CustomWorkout,
   CustomWorkoutExercise,
   DayPlan,
-  DayPlanExercise,
   DayPlanSection,
+  DayPlanSectionWorkout,
   Exercise,
   Favourite,
   ID,
@@ -102,7 +103,7 @@ export interface AppData {
   exercises: Exercise[];
   dayPlans: DayPlan[];
   dayPlanSections: DayPlanSection[];
-  dayPlanExercises: DayPlanExercise[];
+  dayPlanSectionWorkouts: DayPlanSectionWorkout[];
   customWorkouts: CustomWorkout[];
   customWorkoutExercises: CustomWorkoutExercise[];
   favourites: Favourite[];
@@ -130,7 +131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [dayPlans, setDayPlans] = useState<DayPlan[]>([]);
   const [dayPlanSections, setDayPlanSections] = useState<DayPlanSection[]>([]);
-  const [dayPlanExercises, setDayPlanExercises] = useState<DayPlanExercise[]>([]);
+  const [dayPlanSectionWorkouts, setDayPlanSectionWorkouts] = useState<DayPlanSectionWorkout[]>([]);
   const [customWorkouts, setCustomWorkouts] = useState<CustomWorkout[]>([]);
   const [customWorkoutExercises, setCustomWorkoutExercises] = useState<CustomWorkoutExercise[]>([]);
   const [favourites, setFavourites] = useState<Favourite[]>([]);
@@ -146,7 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       exercisesData,
       dayPlansData,
       dayPlanSectionsData,
-      dayPlanExercisesData,
+      dayPlanSectionWorkoutsData,
       customWorkoutsData,
       customWorkoutExercisesData,
       favouritesData,
@@ -159,7 +160,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       exerciseRepo.list(),
       planRepo.getWeek(),
       planRepo.listSections(),
-      planRepo.listSectionExercises(),
+      planRepo.listSectionWorkouts(),
       customWorkoutRepo.list(),
       customWorkoutRepo.listAllItems(),
       favouriteRepo.list(),
@@ -172,7 +173,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setExercises(exercisesData);
     setDayPlans(dayPlansData);
     setDayPlanSections(dayPlanSectionsData);
-    setDayPlanExercises(dayPlanExercisesData);
+    setDayPlanSectionWorkouts(dayPlanSectionWorkoutsData);
     setCustomWorkouts(customWorkoutsData);
     setCustomWorkoutExercises(customWorkoutExercisesData);
     setFavourites(favouritesData);
@@ -186,6 +187,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         await seedIfEmpty();
+        await migratePlanSchema();
         await refresh();
       } catch (e) {
         if (!cancelled) {
@@ -223,7 +225,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       exercises,
       dayPlans,
       dayPlanSections,
-      dayPlanExercises,
+      dayPlanSectionWorkouts,
       customWorkouts,
       customWorkoutExercises,
       favourites,
@@ -242,7 +244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       exercises,
       dayPlans,
       dayPlanSections,
-      dayPlanExercises,
+      dayPlanSectionWorkouts,
       customWorkouts,
       customWorkoutExercises,
       favourites,
