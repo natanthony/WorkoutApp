@@ -34,7 +34,7 @@ import type {
   Weekday,
   WorkoutSection,
 } from '../types';
-import { applyOrder, DomainError, exerciseCompletionKey, sortByOrder } from '../domain';
+import { applyOrder, DomainError, exerciseCompletionKey, exerciseDose, sanitizeExerciseDose, sortByOrder } from '../domain';
 
 export function newId(): ID {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
@@ -116,6 +116,11 @@ export interface ExerciseInput {
   difficulty: Exercise['difficulty'];
   equipment: string[];
   targets: string[];
+  /** Dose model: 'timed' (+ durationSeconds) or 'sets-reps' (+ sets, reps). */
+  kind?: Exercise['kind'];
+  durationSeconds?: number | null;
+  sets?: number | null;
+  reps?: number | null;
 }
 
 export interface ExerciseDependents {
@@ -141,6 +146,7 @@ export const exerciseRepo = {
     if (!input.mediaId) throw new DomainError('A video file is required');
     const all = await getAll<Exercise>('exercises');
     const maxOrder = all.reduce((m, e) => Math.max(m, e.sortOrder), 0);
+    const dose = sanitizeExerciseDose(input);
     const record: Exercise = {
       id: newId(),
       name,
@@ -151,6 +157,7 @@ export const exerciseRepo = {
       difficulty: input.difficulty,
       equipment: [...new Set(input.equipment.map((e) => e.trim()).filter(Boolean))],
       targets: [...new Set(input.targets.map((t) => t.trim()).filter(Boolean))],
+      ...dose,
       sortOrder: maxOrder + 10,
       createdAt: now(),
       updatedAt: now(),
@@ -165,9 +172,27 @@ export const exerciseRepo = {
       const category = await getOne<Category>('categories', patch.categoryId);
       if (!category) throw new DomainError('Choose a valid category');
     }
+    // Dose fields travel together: if any is present in the patch, the whole
+    // dose is re-sanitized (merging with the existing values) so the record
+    // can never end up half-updated.
+    const dosePatched =
+      patch.kind !== undefined ||
+      patch.durationSeconds !== undefined ||
+      patch.sets !== undefined ||
+      patch.reps !== undefined;
+    const dose = dosePatched
+      ? sanitizeExerciseDose({
+          kind: patch.kind !== undefined ? patch.kind : existing.kind,
+          durationSeconds:
+            patch.durationSeconds !== undefined ? patch.durationSeconds : existing.durationSeconds,
+          sets: patch.sets !== undefined ? patch.sets : existing.sets,
+          reps: patch.reps !== undefined ? patch.reps : existing.reps,
+        })
+      : exerciseDose(existing);
     const next: Exercise = {
       ...existing,
       ...patch,
+      ...dose,
       name: patch.name !== undefined ? patch.name.trim() : existing.name,
       equipment: patch.equipment
         ? [...new Set(patch.equipment.map((e) => e.trim()).filter(Boolean))]
