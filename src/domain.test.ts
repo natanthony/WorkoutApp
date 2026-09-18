@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   applyOrder,
   distinctEquipment,
+  doseLabel,
   estimateMinutes,
   exerciseCompletionKey,
+  exerciseDose,
   formatClock,
   generateCustomQueue,
   generatePlanQueue,
   mondayFirstWeekday,
   moveId,
+  sanitizeExerciseDose,
   searchExercises,
   sessionCompletionKey,
   singleExerciseQueue,
@@ -287,5 +290,65 @@ describe('backup validation', () => {
   it('rejects non-object input safely', () => {
     expect(validateBackup(null).ok).toBe(false);
     expect(validateBackup('nope').ok).toBe(false);
+  });
+});
+
+describe('exercise dose (timed vs sets & reps)', () => {
+  it('sanitizes a timed dose, clearing sets/reps', () => {
+    expect(
+      sanitizeExerciseDose({ kind: 'timed', durationSeconds: 30, sets: 2, reps: 10 }),
+    ).toEqual({ kind: 'timed', durationSeconds: 30, sets: null, reps: null });
+  });
+
+  it('sanitizes a sets & reps dose, clearing the duration', () => {
+    expect(
+      sanitizeExerciseDose({ kind: 'sets-reps', sets: 2, reps: 10, durationSeconds: 30 }),
+    ).toEqual({ kind: 'sets-reps', durationSeconds: null, sets: 2, reps: 10 });
+  });
+
+  it('rounds and rejects non-positive numbers', () => {
+    expect(sanitizeExerciseDose({ kind: 'timed', durationSeconds: 29.6 }).durationSeconds).toBe(30);
+    expect(() => sanitizeExerciseDose({ kind: 'timed', durationSeconds: 0 })).toThrow();
+    expect(() => sanitizeExerciseDose({ kind: 'timed', durationSeconds: null })).toThrow();
+    expect(() => sanitizeExerciseDose({ kind: 'sets-reps', sets: 2, reps: null })).toThrow();
+    expect(() => sanitizeExerciseDose({ kind: 'sets-reps', sets: -1, reps: 10 })).toThrow();
+  });
+
+  it('treats missing/unknown kinds as no dose', () => {
+    expect(sanitizeExerciseDose({})).toEqual({
+      kind: null,
+      durationSeconds: null,
+      sets: null,
+      reps: null,
+    });
+    expect(
+      sanitizeExerciseDose({ kind: 'other' as never, durationSeconds: 30 }),
+    ).toEqual({ kind: null, durationSeconds: null, sets: null, reps: null });
+  });
+
+  it('reads pre-feature records without dose fields as no dose', () => {
+    const legacy = makeExercise('e-1', 10);
+    expect(exerciseDose(legacy)).toEqual({
+      kind: null,
+      durationSeconds: null,
+      sets: null,
+      reps: null,
+    });
+    expect(doseLabel(legacy)).toBeNull();
+  });
+
+  it('labels timed and sets & reps exercises', () => {
+    expect(doseLabel(makeExercise('e-1', 10, { kind: 'timed', durationSeconds: 30 }))).toBe(
+      'Timed · 0:30',
+    );
+    expect(doseLabel(makeExercise('e-1', 10, { kind: 'timed', durationSeconds: 75 }))).toBe(
+      'Timed · 1:15',
+    );
+    expect(
+      doseLabel(makeExercise('e-1', 10, { kind: 'sets-reps', sets: 2, reps: 10 })),
+    ).toBe('2 sets of 10 reps');
+    expect(
+      doseLabel(makeExercise('e-1', 10, { kind: 'sets-reps', sets: 1, reps: 1 })),
+    ).toBe('1 set of 1 rep');
   });
 });
