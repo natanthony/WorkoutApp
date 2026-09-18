@@ -908,12 +908,54 @@ button.list-item:hover {
   cursor: pointer;
   color: var(--text);
   font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .segmented button.active {
   background: var(--bg-raised);
   color: var(--text-h);
   box-shadow: var(--shadow);
+}
+
+.segmented button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* -------------------------- Exercise dose ----------------------------- */
+
+.dose-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.dose-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--text-h);
+}
+
+.dose-row input {
+  width: 90px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-dose-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.player-dose-badges .badge {
+  gap: 5px;
 }
 
 .toggle {
