@@ -10,8 +10,10 @@ import { useSession } from '../session';
 import { useMediaUrl } from '../media';
 import { exerciseRepo, favouriteRepo } from '../persistence/repositories';
 import type { ExerciseDependents } from '../persistence/repositories';
-import { formatClock, singleExerciseQueue } from '../domain';
+import { doseLabel, exerciseDose, formatClock, singleExerciseQueue } from '../domain';
+import type { ExerciseDose } from '../domain';
 import { ConfirmDialog, EmptyState, Icon } from '../components/common';
+import { ExerciseDoseEditor } from '../components/exercise';
 import { ExerciseFormModal } from '../components/ExerciseForm';
 
 export default function ExerciseDetailScreen() {
@@ -25,6 +27,8 @@ export default function ExerciseDetailScreen() {
   const [editing, setEditing] = useState(false);
   const [dependents, setDependents] = useState<ExerciseDependents | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [doseError, setDoseError] = useState<string | null>(null);
+  const [savingDose, setSavingDose] = useState(false);
 
   const exercise = id ? app.exercises.find((e) => e.id === id) : undefined;
   const videoUrl = useMediaUrl(exercise?.mediaId ?? null);
@@ -46,6 +50,22 @@ export default function ExerciseDetailScreen() {
   }
 
   const isFavourite = favouriteIds.has(exercise.id);
+  const dose = exerciseDose(exercise);
+  const doseText = doseLabel(exercise);
+
+  // Exercise type (timed / sets & reps) saves immediately on change.
+  const saveDose = async (next: ExerciseDose) => {
+    setDoseError(null);
+    setSavingDose(true);
+    try {
+      await exerciseRepo.update(exercise.id, next);
+      await app.refresh();
+    } catch (e) {
+      setDoseError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSavingDose(false);
+    }
+  };
 
   const play = () => {
     startSession({
@@ -82,6 +102,7 @@ export default function ExerciseDetailScreen() {
           <p>
             <span className="badge badge-muted">{categoryNames.get(exercise.categoryId) ?? 'Unknown category'}</span>{' '}
             {exercise.difficulty ? <span className="badge">{exercise.difficulty}</span> : null}
+            {doseText ? <span className="badge">{doseText}</span> : null}
             {resume && resume.positionSeconds > 5 ? (
               <span className="badge badge-ok">Resume at {formatClock(resume.positionSeconds)}</span>
             ) : null}
@@ -119,6 +140,20 @@ export default function ExerciseDetailScreen() {
             after a backup restore.
           </p>
         )}
+      </section>
+
+      <section className="card section-block" aria-label="Exercise type">
+        <h2>Exercise type</h2>
+        <ExerciseDoseEditor
+          value={dose}
+          onChange={(next) => void saveDose(next)}
+          disabled={savingDose}
+        />
+        {doseError ? (
+          <span className="field-error" role="alert">
+            {doseError}
+          </span>
+        ) : null}
       </section>
 
       {exercise.description ? (

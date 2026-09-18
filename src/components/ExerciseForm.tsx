@@ -6,8 +6,10 @@ import { exerciseRepo } from '../persistence/repositories';
 import type { ExerciseInput } from '../persistence/repositories';
 import { DIFFICULTIES } from '../types';
 import type { Difficulty, Exercise } from '../types';
-import { EQUIPMENT_SUGGESTIONS, TARGET_SUGGESTIONS } from '../domain';
+import { EQUIPMENT_SUGGESTIONS, TARGET_SUGGESTIONS, exerciseDose } from '../domain';
+import type { ExerciseDose } from '../domain';
 import { ChipSelect, Field, ImportProgress, Modal } from './common';
+import { ExerciseDoseEditor } from './exercise';
 
 export function ExerciseFormModal({
   initial,
@@ -25,6 +27,9 @@ export function ExerciseFormModal({
   const [difficulty, setDifficulty] = useState<Difficulty | ''>(initial?.difficulty ?? '');
   const [equipment, setEquipment] = useState<string[]>(initial?.equipment ?? []);
   const [targets, setTargets] = useState<string[]>(initial?.targets ?? []);
+  const [dose, setDose] = useState<ExerciseDose>(() =>
+    initial ? exerciseDose(initial) : { kind: null, durationSeconds: null, sets: null, reps: null },
+  );
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +58,7 @@ export function ExerciseFormModal({
         difficulty: difficulty === '' ? null : difficulty,
         equipment,
         targets,
+        ...dose,
         mediaId: initial?.mediaId ?? null,
         thumbnailMediaId: initial?.thumbnailMediaId ?? null,
       };
@@ -122,6 +128,12 @@ export function ExerciseFormModal({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Form cues, reps guidance, links…"
           />
+        </Field>
+        <Field
+          label="Exercise type"
+          hint="Timed: hold/do the exercise for a number of seconds. Sets & Reps: counted sets of reps."
+        >
+          <ExerciseDoseEditor value={dose} onChange={setDose} disabled={busy} />
         </Field>
         <Field label="Equipment">
           <ChipSelect values={equipment} onChange={setEquipment} suggestions={EQUIPMENT_SUGGESTIONS} placeholder="Add equipment" />
