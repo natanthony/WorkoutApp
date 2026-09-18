@@ -6,7 +6,7 @@ import { useSession } from '../session';
 import { useMediaUrl } from '../media';
 import { playBeep } from '../audio';
 import { completionRepo, playbackRepo } from '../persistence/repositories';
-import { exerciseCompletionKey, formatClock } from '../domain';
+import { doseLabel, exerciseCompletionKey, exerciseDose, formatClock } from '../domain';
 import { ConfirmDialog, EmptyState, Icon } from '../components/common';
 import type { PlaybackStatus } from '../types';
 
@@ -39,6 +39,8 @@ export default function PlayerScreen() {
   const item = session ? session.queue[session.cursor] : undefined;
   const exercise = item ? exerciseById.get(item.exerciseId) : undefined;
   const mediaUrl = useMediaUrl(exercise?.mediaId ?? null);
+  const dose = exercise ? exerciseDose(exercise) : null;
+  const doseText = exercise ? doseLabel(exercise) : null;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSaveRef = useRef(0);
@@ -243,6 +245,18 @@ export default function PlayerScreen() {
             of {session.queue.length}
             {item?.sectionName ? ` · ${item.sectionName}` : ''}
           </p>
+          {exercise ? (
+            <p className="player-dose-badges">
+              {exercise.difficulty ? <span className="badge">{exercise.difficulty}</span> : null}
+              {doseText ? (
+                <span className="badge">
+                  <Icon name={dose?.kind === 'timed' ? 'clock' : 'dumbbell'} size={13} /> {doseText}
+                </span>
+              ) : (
+                <span className="badge badge-muted">No dose set — open the exercise to choose timed or sets &amp; reps</span>
+              )}
+            </p>
+          ) : null}
         </div>
         <div className="header-actions">
           <button type="button" className="button button-secondary" onClick={() => setConfirmEnd(true)}>
@@ -362,6 +376,7 @@ export default function PlayerScreen() {
             <div className="queue">
               {session.queue.map((queueItem, index) => {
                 const queuedExercise = exerciseById.get(queueItem.exerciseId);
+                const queuedDose = queuedExercise ? doseLabel(queuedExercise) : null;
                 return (
                   <button
                     key={`${queueItem.exerciseId}-${index}`}
@@ -384,6 +399,7 @@ export default function PlayerScreen() {
                           {queueItem.sectionName} · {queueItem.sectionPosition} of {queueItem.sectionSize}
                         </span>
                       ) : null}
+                      {queuedDose ? <span className="queue-meta">{queuedDose}</span> : null}
                     </span>
                   </button>
                 );

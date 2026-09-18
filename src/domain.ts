@@ -11,6 +11,7 @@ import type {
   DayPlanSectionWorkout,
   Difficulty,
   Exercise,
+  ExerciseKind,
   ID,
   QueueItem,
   Weekday,
@@ -237,6 +238,84 @@ export function distinctEquipment(exercises: Exercise[]): string[] {
   const set = new Set<string>();
   for (const e of exercises) for (const v of e.equipment) set.add(v);
   return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/* --------------------------- Exercise dose ---------------------------- */
+/**
+ * Timed vs sets & reps dosing. Sanitization lives here (pure) so the
+ * repository and UI share one set of rules; presentation labels are used
+ * by the detail page, the player and its queue.
+ */
+
+export interface ExerciseDose {
+  kind: ExerciseKind | null;
+  durationSeconds: number | null;
+  sets: number | null;
+  reps: number | null;
+}
+
+function positiveInt(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const n = Math.round(value);
+  return n > 0 ? n : null;
+}
+
+/**
+ * Normalize a dose payload into a consistent, valid shape: unknown kinds
+ * become null, numbers are rounded positive integers, and fields that do
+ * not apply to the chosen kind are cleared. Throws on incomplete input so
+ * a half-filled dose is never persisted.
+ */
+export function sanitizeExerciseDose(input: {
+  kind?: ExerciseKind | null;
+  durationSeconds?: number | null;
+  sets?: number | null;
+  reps?: number | null;
+}): ExerciseDose {
+  const kind: ExerciseKind | null =
+    input.kind === 'timed' || input.kind === 'sets-reps' ? input.kind : null;
+  if (kind === 'timed') {
+    const durationSeconds = positiveInt(input.durationSeconds);
+    if (durationSeconds === null) {
+      throw new DomainError('Set a duration in seconds for a timed exercise (e.g. 30)');
+    }
+    return { kind, durationSeconds, sets: null, reps: null };
+  }
+  if (kind === 'sets-reps') {
+    const sets = positiveInt(input.sets);
+    const reps = positiveInt(input.reps);
+    if (sets === null || reps === null) {
+      throw new DomainError('Set both sets and reps (e.g. 2 sets of 10 reps)');
+    }
+    return { kind, durationSeconds: null, sets, reps };
+  }
+  return { kind: null, durationSeconds: null, sets: null, reps: null };
+}
+
+/** Read the dose of a stored exercise, tolerating pre-feature records. */
+export function exerciseDose(exercise: Exercise): ExerciseDose {
+  try {
+    return sanitizeExerciseDose(exercise);
+  } catch {
+    return { kind: null, durationSeconds: null, sets: null, reps: null };
+  }
+}
+
+/**
+ * Human-readable dose label, e.g. "30 seconds" or "2 sets of 10 reps".
+ * Returns null when the exercise has no dose configured.
+ */
+export function doseLabel(exercise: Exercise): string | null {
+  const dose = exerciseDose(exercise);
+  if (dose.kind === 'timed' && dose.durationSeconds !== null) {
+    return `Timed · ${formatClock(dose.durationSeconds)}`;
+  }
+  if (dose.kind === 'sets-reps' && dose.sets !== null && dose.reps !== null) {
+    const sets = `${dose.sets} set${dose.sets === 1 ? '' : 's'}`;
+    const reps = `${dose.reps} rep${dose.reps === 1 ? '' : 's'}`;
+    return `${sets} of ${reps}`;
+  }
+  return null;
 }
 
 /* --------------------------- Presentation --------------------------- */

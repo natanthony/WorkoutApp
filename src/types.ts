@@ -9,6 +9,13 @@ export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type Difficulty = 'Beginner' | 'Intermediate' | 'Advanced';
 export const DIFFICULTIES: Difficulty[] = ['Beginner', 'Intermediate', 'Advanced'];
 
+/**
+ * How an exercise is dosed during a workout:
+ * 'timed' → hold/do the exercise for `durationSeconds` (e.g. 30 seconds);
+ * 'sets-reps' → perform `sets` sets of `reps` reps (e.g. 2 sets of 10 reps).
+ */
+export type ExerciseKind = 'timed' | 'sets-reps';
+
 export interface Timestamps {
   createdAt: number;
   updatedAt: number;
@@ -46,6 +53,18 @@ export interface Exercise extends Timestamps {
   equipment: string[];
   /** Multiple target values (e.g. 'Ankles', 'Calves'). */
   targets: string[];
+  /**
+   * Dose model. Absent/null = not specified. 'timed' uses
+   * `durationSeconds`; 'sets-reps' uses `sets` + `reps`. Optional because
+   * records stored before this feature exist without these fields.
+   */
+  kind?: ExerciseKind | null;
+  /** Duration in seconds for 'timed' exercises (e.g. 30). */
+  durationSeconds?: number | null;
+  /** Set count for 'sets-reps' exercises. */
+  sets?: number | null;
+  /** Rep count per set for 'sets-reps' exercises. */
+  reps?: number | null;
   sortOrder: number;
 }
 
